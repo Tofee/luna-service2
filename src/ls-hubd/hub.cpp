@@ -31,6 +31,8 @@
 #include <luna-service2++/error.hpp>
 #include <luna-service2++/payload.hpp>
 
+#include <systemd/sd-daemon.h>
+
 #include "uri.h"
 #include "base.h"
 #include "conf.hpp"
@@ -3357,6 +3359,11 @@ int main(int argc, char *argv[])
             {
                 LOG_LS_ERROR(MSGID_LSHUB_UPSTART_ERROR, 0, "Unable to emit upstart event");
             }
+        }
+
+        if (getenv("NOTIFY_SOCKET") != NULL)
+        {
+            sd_notify(0, "READY=1");
         }
 #endif
 

@@ -62,6 +62,7 @@ set(LIBRARIES
     luna-service2++
     ${PMLOGLIB_LIBRARIES}
     ${PBNJSON_CXX_LIBRARIES}
+    ${SYSTEMD_DAEMON_LDFLAGS}
     )
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})

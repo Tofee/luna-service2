@@ -22,4 +22,4 @@ Description: @WEBOS_PROJECT_SUMMARY@
 Version: @WEBOS_COMPONENT_VERSION@
 Requires.private: glib-2.0 pbnjson_c >= 2.5.0 PmLogLib >= 3.0.2
 Libs: -L${libdir} -l@CMAKE_PROJECT_NAME@
-Cflags: -I${includedir} -DUSE_PMLOG_DECLARATION
+Cflags: -I${includedir} -DUSE_PMLOG_DECLARATION -I${includedir}/luna-service2

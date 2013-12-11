@@ -442,6 +442,7 @@ const char * LSMessageGetSender(LSMessage *message);
 const char * LSMessageGetSenderServiceName(LSMessage *message);
 const char * LSMessageGetCategory(LSMessage *message);
 const char * LSMessageGetMethod(LSMessage *message);
+pid_t LSMessageGetSenderPid(LSMessage *message);
 
 const char * LSMessageGetPayload(LSMessage *message);
 LSPayload *LSMessageAccessPayload(LSMessage *message);

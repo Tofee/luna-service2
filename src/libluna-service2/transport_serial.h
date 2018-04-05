@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #ifndef _TRANSPORT_SERIAL_H_
@@ -24,11 +22,26 @@
 #include <glib.h>
 #include <luna-service2/lunaservice.h>
 
+/** @cond INTERNAL */
+
+typedef struct LSTransportMessage _LSTransportMessage;
+
+/**
+ *******************************************************************************
+ * @brief LSTransportSerialMapEntry serial map entry
+ *******************************************************************************
+ */
 typedef struct LSTransportSerialMapEntry {
     LSMessageToken serial;  /**< global serial */
     GList *serial_list_item;
 } _LSTransportSerialMapEntry;
 
+/**
+ *******************************************************************************
+ * @brief LSTransportSerialListItem serial list item, use in operation like save,
+ * remove, etc.
+ *******************************************************************************
+ */
 typedef struct LSTransportSerialListItem {
     LSMessageToken serial;  /**< global */
     _LSTransportMessage *message;
@@ -37,9 +50,9 @@ typedef struct LSTransportSerialListItem {
 /**
  * In order to handle clean shutdown (i.e., making sure that we know which
  * method calls have been received and/or processed on the far end), we keep
- * a queue of @LSTransportSerialListItem that saves the serial number for
+ * a queue of @ref _LSTransportSerialListItem that saves the serial number for
  * each method call that we make. In additon, we save a pointer to the
- * actual item on the queue as a @LSTransportSerialMapEntry in the @map,
+ * actual item on the queue as a @ref _LSTransportSerialMapEntry in the map,
  * which allows us to do a fast lookup and remove from the list when
  * receive a method call reply.
  *
@@ -69,7 +82,7 @@ typedef struct LSTransportSerialListItem {
  */
 typedef struct LSTransportSerial {
     pthread_mutex_t lock;           /**< protects the queue and map */
-    GQueue *queue;                  /**< ordered linked list of serial #s */
+    GQueue *queue;                  /**< ordered linked list of serial \#s */
     GHashTable *map;                /**< map of serial number to ll item */
 } _LSTransportSerial;
 
@@ -82,5 +95,7 @@ void _LSTransportSerialFree(_LSTransportSerial *serial_info);
 bool _LSTransportSerialSave(_LSTransportSerial *serial_info, _LSTransportMessage *message, LSError *lserror);
 void _LSTransportSerialRemove(_LSTransportSerial *serial_info, LSMessageToken serial);
 _LSTransportMessage *_LSTransportSerialPopHead(_LSTransportSerial *serial_info);
+
+/** @endcond */
 
 #endif      // _TRANSPORT_SERIAL_H_

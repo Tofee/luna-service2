@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -31,8 +29,8 @@
  * We should test it on most tests, but it'll blow everything else if the code isn't fixed. */
 
 /* Copied from clock.c */
-#define NSEC_PER_SEC 1000000000L
-#define NSEC_PER_MSEC 1000000L
+#define NSEC_PER_SEC 1000000000LL
+#define NSEC_PER_MSEC 1000000LL
 
 /* void ClockGetTime(struct timespec *time) */
 static void
@@ -92,7 +90,7 @@ test_ClockStr_validate_values(long sec, long nsec, gchar* prefix)
     time.tv_sec = sec;
     time.tv_nsec = nsec;
     GString *referencestring = g_string_new(prefix);
-    g_string_append_printf(referencestring, "%lds.%ldms ", time.tv_sec, time.tv_nsec / NSEC_PER_MSEC);
+    g_string_append_printf(referencestring, "%lds.%lldms ", time.tv_sec, time.tv_nsec / NSEC_PER_MSEC);
 
     ClockStr(teststring, &time);
     g_assert_cmpstr(teststring->str, ==, referencestring->str);
@@ -117,61 +115,24 @@ test_ClockStr(void)
     test_ClockStr_validate_values(LONG_MAX, LONG_MAX, "ÄÄÄÄÄÄÄÄ\xe2\x98\xa0ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ\xe2\x98\xa0\xe2\x98\xa0\xe2\x98\xa0ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÖÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄmorethan1024chars");
 }
 
-static void
-test_ClockPrintTime_validate(long sec, long nsec)
-{
-    struct timespec ts;
-    ts.tv_sec = sec;
-    ts.tv_nsec = nsec;
-
-    GString *reference = g_string_new("");
-    g_string_printf(reference, "*%lds.%ldms*", sec, nsec / NSEC_PER_MSEC);
-
-    if (g_test_trap_fork(1000000, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        /* Should print "[seconds]s.[milliseconds]ms ". */
-        ClockPrintTime(&ts);
-        exit(0);
-    }
-    g_test_trap_assert_passed();
-    g_test_trap_assert_stderr(reference->str);
-
-    g_string_free(reference, TRUE);
-}
-
-/* void ClockPrintTime(struct timespec *time) */
-static void
-test_ClockPrintTime(void)
-{
-    test_ClockPrintTime_validate(0, 0);
-    test_ClockPrintTime_validate(1, 0);
-    test_ClockPrintTime_validate(0, 1);
-    test_ClockPrintTime_validate(-1, 0);
-    test_ClockPrintTime_validate(0, -1);
-    test_ClockPrintTime_validate(INT_MAX, 0);
-    test_ClockPrintTime_validate(0, INT_MAX);
-    test_ClockPrintTime_validate(INT_MAX, INT_MAX);
-    test_ClockPrintTime_validate(LONG_MAX, 0);
-    test_ClockPrintTime_validate(0, NSEC_PER_SEC);
-    test_ClockPrintTime_validate(LONG_MAX, NSEC_PER_SEC);
-    test_ClockPrintTime_validate(LONG_MIN, -NSEC_PER_SEC);
-}
-
 /* void ClockPrint() */
 static void
 test_ClockPrint(void)
 {
+#if GLIB_CHECK_VERSION(2, 38, 0)
     /* ClockPrint uses internally ClockPrintTime() so we'll stress test that one
        and check here only the print procedure. */
     /* Fork this test to capture stdout. */
-    if (g_test_trap_fork(1000000, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         ClockPrint();
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 1000000, 0);
     g_test_trap_assert_passed();
     /* Consider regular expression to check for more specific "%lds.%ldms". */
     g_test_trap_assert_stderr("*s.*ms*");
+#endif
 }
 
 struct timespec to_timespec(int sec, int nsec)
@@ -339,7 +300,6 @@ main(int argc, char *argv[])
     g_test_add_func("/luna-service2/ClockGetTime", test_ClockGetTime);
     g_test_add_func("/luna-service2/ClockTimeIsGreater", test_ClockTimeIsGreater);
     g_test_add_func("/luna-service2/ClockStr", test_ClockStr);
-    g_test_add_func("/luna-service2/ClockPrintTime", test_ClockPrintTime);
     g_test_add_func("/luna-service2/ClockPrint", test_ClockPrint);
     g_test_add_func("/luna-service2/ClockDiff", test_ClockDiff);
     g_test_add_func("/luna-service2/ClockAccum", test_ClockAccum);

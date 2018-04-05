@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <fcntl.h>
@@ -23,10 +21,11 @@
 #include "transport_utils.h"
 #include "base.h"
 
+/** @cond INTERNAL */
+
 /* Hub socket's data */
 static char *hub_socket_dir = NULL;
-static char *public_hub_addr = NULL;
-static char *private_hub_addr = NULL;
+static char *hub_addr = NULL;
 
 int _ls_debug_tracing = 0;
 
@@ -200,8 +199,7 @@ static void init_socket_addresses()
         hub_socket_dir = HUB_LOCAL_SOCKET_DIRECTORY;
     }
 
-    public_hub_addr = g_strconcat(hub_socket_dir, "/", HUB_LOCAL_ADDRESS_PUBLIC_NAME, NULL);
-    private_hub_addr = g_strconcat(hub_socket_dir, "/", HUB_LOCAL_ADDRESS_PRIVATE_NAME, NULL);
+    hub_addr = g_strconcat(hub_socket_dir, "/", HUB_LOCAL_ADDRESS_NAME, NULL);
 }
 
 static pthread_once_t socket_address_initialized = PTHREAD_ONCE_INIT;
@@ -209,33 +207,28 @@ static pthread_once_t socket_address_initialized = PTHREAD_ONCE_INIT;
 /**
  *******************************************************************************
  * @brief Get hub's socket address.
- *
- * @param  is_public_bus     IN   if we are trying to connect to the public bus
- * (private otherwise)
- *
  * @retval socket address
  *******************************************************************************
  */
-const char *_LSGetHubLocalSocketAddress(bool is_public_bus)
+const char *_LSGetHubLocalSocketAddress()
 {
     (void) pthread_once(&socket_address_initialized, init_socket_addresses);
 
-    return is_public_bus ? public_hub_addr : private_hub_addr;
+    return hub_addr;
 }
 
 /**
  *******************************************************************************
  * @brief Get hub's socket directory.
  *
- * @param  is_public_bus     IN   if we are trying to connect to the public bus
- * (private otherwise)
- *
  * @retval local socket directory
  *******************************************************************************
  */
-const char *_LSGetHubLocalSocketDirectory(bool is_public_bus)
+const char *_LSGetHubLocalSocketDirectory()
 {
     (void) pthread_once(&socket_address_initialized, init_socket_addresses);
 
     return hub_socket_dir;
 }
+
+/** @endcond */

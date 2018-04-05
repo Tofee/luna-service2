@@ -1,23 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2010-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
-
-
-#define _GNU_SOURCE
+// Copyright (c) 2010-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include <stdbool.h>
 #include <unistd.h>
@@ -30,13 +25,9 @@
 #include "transport_security.h"
 
 /**
- * @defgroup LunaServiceTransportSecurity
+ * @cond INTERNAL
+ * @defgroup LunaServiceTransportSecurity Transport security
  * @ingroup LunaServiceTransport
- * @brief Transport security
- */
-
-/**
- * @addtogroup LunaServiceTransportSecurity
  * @{
  */
 
@@ -115,7 +106,7 @@ _LSTransportCredGetPid(const _LSTransportCred *cred)
  *******************************************************************************
  * @brief Get the UID.
  *
- * @param  creda    IN  credentials
+ * @param  cred IN  credentials
  *
  * @retval  uid on success
  * @retval  LS_UID_INVALID on failure
@@ -368,4 +359,7 @@ void _LSTransportCredSetPid(_LSTransportCred *cred, pid_t pid)
     cred->pid = pid;
 }
 
-/*< @} END OF LunaServiceTransportSecurity */
+/**
+ * @} END OF LunaServiceTransportSecurity
+ * @endcond
+ */

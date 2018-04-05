@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2014 LG Electronics, Inc.
+# Copyright (c) 2014-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,52 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
-
-webos_use_gtest()
-
-# check for pbnjson cxx library
-pkg_check_modules(PBNJSON_CXX REQUIRED pbnjson_cpp>=2.5.0)
-include_directories(${PBNJSON_CXX_INCLUDE_DIRS})
-webos_add_compiler_flags(ALL ${PBNJSON_CXX_CFLAGS_OTHER})
+# SPDX-License-Identifier: Apache-2.0
 
 set(UNIT_TEST_SOURCES
-    test_error
-    test_jsonpayload
+    test_error.cpp
+    test_jsonpayload.cpp
     )
-
-foreach(TEST ${UNIT_TEST_SOURCES})
-    add_executable(${TEST} ${TEST}.cpp)
-    target_link_libraries(${TEST} ${PROJECT_NAME} ${TESTLIBNAME} ${WEBOS_GTEST_LIBRARIES} ${PBNJSON_CXX_LIBRARIES})
-    add_test(${TEST} ${TEST})
-endforeach()
 
 set(INTEGRATION_TEST_SOURCES
-    "bhv-3965-crash\;bhv-3965-crash-svc"
-    test_client
-    test_service
-    test_category
-    "test_call\;test_call_service"
-    test_subscription_cxx
-    test_disconnection
-    category_notification
-    "test_example++"
-    metainfo_example
+    test_client.cpp
+    test_service.cpp
+    test_category.cpp
+    "test_call.cpp\;test_call_service.cpp"
+    test_subscription_cxx.cpp
+    test_subscription_cancel.cpp
+    test_disconnection.cpp
+    test_deprecated_security.cpp
+    category_notification.cpp
+    "test_example++.cpp"
+    metainfo_example.cpp
+    "test_idletimeout.cpp\;test_idletimeout_service.cpp"
+    test_payload.cpp
     )
 
-add_library(util STATIC util.cpp)
+set(TEST_LIBRARIES
+    ${PROJECT_NAME}
+    ${WEBOS_GTEST_LIBRARIES}
+    )
 
-foreach(SOURCES ${INTEGRATION_TEST_SOURCES})
-    foreach(SOURCE ${SOURCES})
-        add_executable(${SOURCE} ${SOURCE}.cpp)
-        target_link_libraries(${SOURCE} ${PROJECT_NAME} util ${TESTLIBNAME} ${WEBOS_GTEST_LIBRARIES} ${PBNJSON_CXX_LIBRARIES})
-    endforeach()
-    list(GET SOURCES 0 TEST)
-    add_test(
-        NAME integration.c++.${TEST}
-        COMMAND ${CMAKE_SOURCE_DIR}/src/libluna-service2/test/run_with_hub
-                ${CMAKE_SOURCE_DIR}
-                ${CMAKE_BINARY_DIR}
-                ${CMAKE_CURRENT_SOURCE_DIR}/${TEST}.conf
-             )
-endforeach()
+add_unit_test_cases("${UNIT_TEST_SOURCES}" "${TEST_LIBRARIES}")
+add_integration_test_cases("integration.c++" "${INTEGRATION_TEST_SOURCES}" "${TEST_LIBRARIES}")

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <glib.h>
@@ -24,7 +22,6 @@
 
 /* Mock variables *************************************************************/
 
-static _LSTransport mvar_transport;
 static _LSTransportChannel mvar_channel;
 
 static const int mvar_priority = G_PRIORITY_DEFAULT_IDLE;
@@ -39,18 +36,13 @@ test_LSTransportChannelPositive(void)
 {
     gchar tmpfilename[32] = "ut_transportchannel_testXXXXXX";
     int tempfd = g_mkstemp(tmpfilename);
+    g_assert_cmpint(tempfd, !=, -1);
     bool prev = true;
 
     /* Test channel handling. */
-    bool retval = _LSTransportChannelInit(&mvar_transport,
-                                           &mvar_channel,
-                                           tempfd,
-                                           mvar_priority);
+    bool retval = _LSTransportChannelInit(&mvar_channel, tempfd, mvar_priority);
     /* case: check initialized channel info. */
     g_assert(retval);
-    g_assert_cmphex(GPOINTER_TO_INT(mvar_channel.transport),
-                     ==,
-                     GPOINTER_TO_INT(&mvar_transport));
     g_assert_cmpint(mvar_channel.fd, ==, tempfd);
     g_assert_cmpint(mvar_channel.priority, ==, mvar_priority);
     g_assert(NULL != mvar_channel.channel);
@@ -105,11 +97,9 @@ test_LSTransportChannelPositive(void)
     g_assert(NULL == mvar_channel.recv_watch);
     g_assert(NULL == mvar_channel.accept_watch);
     g_assert(NULL == mvar_channel.channel);
-    g_assert(NULL == mvar_channel.transport);
 
     /* Test channel close. */
-    _LSTransportChannelInit(&mvar_transport,
-                             &mvar_channel,
+    _LSTransportChannelInit(&mvar_channel,
                              tempfd,
                              mvar_priority);
     _LSTransportChannelClose(&mvar_channel, false);
@@ -137,7 +127,7 @@ _LSTransportFdSetNonBlock(int fd, bool *prev_state_blocking)
 }
 
 void
-_LSTransportRemoveSendWatch(_LSTransportChannel *channel)
+_LSTransportChannelRemoveSendWatch(_LSTransportChannel *channel)
 {
     if (channel == &mvar_channel)
     {
@@ -148,7 +138,7 @@ _LSTransportRemoveSendWatch(_LSTransportChannel *channel)
 }
 
 void
-_LSTransportRemoveReceiveWatch(_LSTransportChannel *channel)
+_LSTransportChannelRemoveReceiveWatch(_LSTransportChannel *channel)
 {
     if (channel == &mvar_channel)
     {
@@ -159,7 +149,7 @@ _LSTransportRemoveReceiveWatch(_LSTransportChannel *channel)
 }
 
 void
-_LSTransportRemoveAcceptWatch(_LSTransportChannel *channel)
+_LSTransportChannelRemoveAcceptWatch(_LSTransportChannel *channel)
 {
     if (channel == &mvar_channel)
     {

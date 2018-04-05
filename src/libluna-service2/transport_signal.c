@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <errno.h>
@@ -25,13 +23,9 @@
 #include "transport_signal.h"
 
 /**
- * @defgroup LunaServiceTransportSignal
+ * @cond INTERNAL
+ * @defgroup LunaServiceTransportSignal Transport signal
  * @ingroup LunaServiceTransport
- * @brief Transport signal
- */
-
-/**
- * @addtogroup LunaServiceTransportSignal
  * @{
  */
 
@@ -40,6 +34,7 @@
  * @brief Send a signal registration message.
  *
  * @param  transport    IN  transport
+ * @param  is_public_bus
  * @param  reg          IN  true to register, false to unregister
  * @param  category     IN  category (required)
  * @param  method       IN  method (optional, NULL means none)
@@ -51,7 +46,9 @@
  *******************************************************************************
  */
 bool
-_LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *category,
+_LSTransportSignalRegistration(_LSTransport *transport,
+                               bool is_public_bus,
+                               bool reg, const char *category,
                                const char *method, LSMessageToken *token, LSError *lserror)
 {
     /*
@@ -67,7 +64,7 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
     LOG_LS_TRACE("%s: category: %s, method: %s\n", __func__, category, method);
 
     _LSTransportMessage *message = _LSTransportMessageNewRef(category_len + method_len);
-
+    message->raw->header.is_public_bus = is_public_bus;
     if (reg)
     {
         _LSTransportMessageSetType(message, _LSTransportMessageTypeSignalRegister);
@@ -114,6 +111,7 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
  * @param  transport    IN  transport
  * @param  category     IN  category
  * @param  method       IN  method (optional, NULL means none)
+ * @param  is_public_bus
  * @param  token        OUT message token
  * @param  lserror      OUT set on error
  *
@@ -123,9 +121,10 @@ _LSTransportSignalRegistration(_LSTransport *transport, bool reg, const char *ca
  */
 bool
 LSTransportRegisterSignal(_LSTransport *transport, const char *category, const char *method,
+                          bool is_public_bus,
                            LSMessageToken *token, LSError *lserror)
 {
-    return _LSTransportSignalRegistration(transport, true, category, method, token, lserror);
+    return _LSTransportSignalRegistration(transport, is_public_bus, true, category, method, token, lserror);
 }
 
 /**
@@ -136,6 +135,7 @@ LSTransportRegisterSignal(_LSTransport *transport, const char *category, const c
  * @param  transport    IN  transport
  * @param  category     IN  category
  * @param  method       IN  method (optional, NULL means none)
+ * @param  is_public_bus
  * @param  token        OUT message token
  * @param  lserror      OUT set on error
  *
@@ -145,9 +145,10 @@ LSTransportRegisterSignal(_LSTransport *transport, const char *category, const c
  */
 bool
 LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const char *method,
+                            bool is_public_bus,
                            LSMessageToken *token, LSError *lserror)
 {
-    return _LSTransportSignalRegistration(transport, false, category, method, token, lserror);
+    return _LSTransportSignalRegistration(transport, is_public_bus, false, category, method, token, lserror);
 }
 
 /**
@@ -156,6 +157,7 @@ LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const
  *
  * @param  transport        IN  transport
  * @param  service_name     IN  service name
+ * @param  is_public_bus
  * @param  token            OUT message token
  * @param  lserror          OUT set on error
  *
@@ -164,9 +166,9 @@ LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const
  *******************************************************************************
  */
 bool
-LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *service_name,  LSMessageToken *token, LSError *lserror)
+LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *service_name, bool is_public_bus, LSMessageToken *token, LSError *lserror)
 {
-    return _LSTransportSignalRegistration(transport, true, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
+    return _LSTransportSignalRegistration(transport, is_public_bus, true, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
 }
 
 /**
@@ -175,6 +177,7 @@ LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *serv
  *
  * @param  transport        IN  transport
  * @param  service_name     IN  service name
+ * @param  is_public_bus    IN
  * @param  token            OUT message token
  * @param  lserror          OUT set on error
  *
@@ -183,9 +186,9 @@ LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *serv
  *******************************************************************************
  */
 bool
-LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *service_name,  LSMessageToken *token, LSError *lserror)
+LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *service_name, bool is_public_bus, LSMessageToken *token, LSError *lserror)
 {
-    return _LSTransportSignalRegistration(transport, false, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
+    return _LSTransportSignalRegistration(transport, is_public_bus, false, SERVICE_STATUS_CATEGORY, service_name, token, lserror);
 }
 
 /**
@@ -195,13 +198,14 @@ LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *se
  * @param  category     IN  category
  * @param  method       IN  method (optional, NULL means none)
  * @param  payload      IN  payload
+ * @param  is_public_bus  IN
  *
  * @retval  message on success
  * @retval  NULL on failure
  *******************************************************************************
  */
 _LSTransportMessage*
-LSTransportMessageSignalNewRef(const char *category, const char *method, const char *payload)
+LSTransportMessageSignalNewRef(const char *category, const char *method, const char *payload, bool is_public_bus)
 {
     int category_len = strlen(category) + 1;
     int method_len = strlen(method) + 1;
@@ -211,7 +215,7 @@ LSTransportMessageSignalNewRef(const char *category, const char *method, const c
     LS_ASSERT(method_len > 1);
 
     _LSTransportMessage *message = _LSTransportMessageNewRef(category_len + method_len + payload_len);
-
+    message->raw->header.is_public_bus = is_public_bus;
     _LSTransportMessageSetType(message, _LSTransportMessageTypeSignal);
 
     char *message_body = _LSTransportMessageGetBody(message);
@@ -236,6 +240,7 @@ LSTransportMessageSignalNewRef(const char *category, const char *method, const c
  * @param  category     IN  category
  * @param  method       IN  method (optional, NULL means none)
  * @param  payload      IN  payload
+ * @param  is_public_bus  IN
  * @param  lserror      OUT set on error
  *
  * @retval  true on success
@@ -243,11 +248,11 @@ LSTransportMessageSignalNewRef(const char *category, const char *method, const c
  *******************************************************************************
  */
 bool
-LSTransportSendSignal(_LSTransport *transport, const char *category, const char *method, const char *payload, LSError *lserror)
+LSTransportSendSignal(_LSTransport *transport, const char *category, const char *method, const char *payload, bool is_public_bus, LSError *lserror)
 {
     bool ret = true;
 
-    _LSTransportMessage *message = LSTransportMessageSignalNewRef(category, method, payload);
+    _LSTransportMessage *message = LSTransportMessageSignalNewRef(category, method, payload, is_public_bus);
 
     LS_ASSERT(transport->hub != NULL);
 
@@ -330,4 +335,7 @@ LSTransportServiceStatusSignalGetUniqueName(_LSTransportMessage *message)
     return NULL;
 }
 
-/* @} END OF LunaServiceTransportSignal */
+/**
+ * @} END OF LunaServiceTransportSignal
+ * @endcond
+ */

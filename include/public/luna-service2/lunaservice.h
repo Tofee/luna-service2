@@ -1,23 +1,31 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef _LUNASERVICE_H_
+#define _LUNASERVICE_H_
+
 #include <stdio.h>
 #include <stdbool.h>
+
+#if __cplusplus >= 201103L
+#include <cinttypes>
+#else
 #include <inttypes.h>
+#endif
+
 #include <glib.h>
 
 #ifdef WIN32
@@ -28,20 +36,38 @@
 #include <sys/select.h>
 #endif
 
+#include <luna-service2/payload.h>
 #include <luna-service2/lunaservice-errors.h>
+
+#ifdef USE_PMLOG_DECLARATION
 #include <PmLogLib.h>
+#endif
 
-#ifndef _LUNASERVICE_H_
-#define _LUNASERVICE_H_
+#define LS_DEPRECATED           __attribute__ ((deprecated))
+#define LS_DEPRECATED_MSG(msg)  __attribute__ ((deprecated(msg)))
 
-#define LS_DEPRECATED   __attribute__ ((deprecated))
+#if !defined(SECURITY_COMPATIBILITY)
+#    define LS_DEPRECATED_PUBPRIV  LS_DEPRECATED_MSG("No public/private bus any more")
+#else
+#    define LS_DEPRECATED_PUBPRIV
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
-@page
+ * @defgroup API_SUMARY API_SUMARY
+ * @{
+ * Open webOS Luna System Bus library, daemon, and utilities.
+ * Luna-service2 (LS2) provides a bus-based IPC mechanism used between components in webOS.
+ * Luna-service2 is composed of a client library and a central hub daemon.
+ * The client library provides API support to register on the bus and communicate with other components.
+ * The hub provides a central clearinghouse for all communication. Utilities for monitoring and debugging the bus are included
+ * @}
+ */
+
+/**
 @addtogroup LunaServiceExample
 
 <h1>LunaService</h1>
@@ -114,6 +140,7 @@ SomeOtherThread()
  */
 #define HUB_CONF_SCAN_COMPLETE_METHOD    "configScanComplete"
 
+/** @brief Message token */
 typedef unsigned long LSMessageToken;
 
 /**
@@ -133,9 +160,9 @@ struct LSError {
     int   error_code;  /**< public error code */
     char *message;     /**< public error message */
 
-    const char *file;  /**< file in which error happened. */
-    int         line;  /**< line on which error happened. */
-    const char *func;  /**< function on which error happened. */
+    const char *file;  /**< file in which error occurred. */
+    int         line;  /**< line on which error occurred. */
+    const char *func;  /**< function on which error occurred. */
 
     void       *padding;  /**< Reserved for future use */
     unsigned long magic;  /**< use as cookie to detect invalid LSErrors  */
@@ -149,8 +176,9 @@ typedef struct LSError  LSError;
 typedef struct LSHandle LSHandle;
 
 /**
-* @brief Handle to public service.
-*/
+ * @brief Handle to public service.
+ * @deprecated Use LSHandle instead.
+ */
 typedef struct LSPalmService LSPalmService;
 
 /**
@@ -163,11 +191,12 @@ typedef struct LSMessage        LSMessage;
  */
 
 /**
+* @typedef LSMethodFunction
 * @brief Type for method callbacks.
 *
-* @param  *LSMethodFunction
-* @param  sh
-* @param  msg
+* @param sh               handle to service
+* @param msg              message object
+* @param category_context category context
 *
 * @retval true if message successfully processed.
 * @retval false if some error occurred and you would like the callback to
@@ -177,29 +206,31 @@ typedef bool (*LSMethodFunction) (LSHandle *sh, LSMessage *msg, void *category_c
 
 
 /**
+* @typedef LSPropertyGetFunction
 * @brief Type for property get callback.
 *
-* @param  *LSPropertyGetFunction
-* @param  sh
-* @param  msg
+* @param sh               handle to service
+* @param msg              message object
+* @param category_context category context
 *
-* @retval Same as LSMethodFunction()
+* @return Same as LSMethodFunction()
 */
 typedef bool (*LSPropertyGetFunction) (LSHandle *sh, LSMessage *msg, void *category_context);
 
 /**
+* @typedef LSPropertySetFunction
 * @brief Type for property set callback.
 *
-* @param  *LSPropertySetFunction
-* @param  sh
-* @param  msg
+* @param sh               handle to service
+* @param msg              message object
+* @param category_context category context
 *
-* @retval Same as LSMethodFunction()
+* @return Same as LSMethodFunction()
 */
 typedef bool (*LSPropertySetFunction) (LSHandle *sh, LSMessage *msg, void *category_context);
 
 /**
-* @brief Method flags
+* @brief Flags are used during method definition in a category. Can be used to enable incoming message validation against provided schema
 */
 typedef enum {
 	LUNA_METHOD_FLAG_DEPRECATED = (1 << 0),
@@ -213,7 +244,7 @@ typedef enum {
 	LUNA_METHOD_FLAG_VALIDATE_IN = (1 << 1),
 
 	/**
-	 * Constant to reprsent method with no flags turned on
+     * Constant to represent method with no flags turned on
 	 */
 	LUNA_METHOD_FLAGS_NONE = 0,
 
@@ -227,7 +258,7 @@ typedef enum {
 } LSMethodFlags;
 
 /**
- * @brief Signal flags
+ * @brief Flags are used during signal definition in a category. Can be used to mark signal as deprecated
  */
 typedef enum {
 	LUNA_SIGNAL_FLAG_DEPRECATED = (1 << 0),
@@ -239,13 +270,13 @@ typedef enum {
 } LSSignalFlags;
 
 /**
- * @brief Property flags
+ * @brief Flags are used during property definition in a category. Can be used to mark property as deprecated
  */
 typedef enum {
 	LUNA_PROPERTY_FLAG_DEPRECATED = (1 << 0),
 
 	/**
-	 * Constant to reprsent property with no flags turned on
+     * Constant to represent property with no flags turned on
 	 */
 	LUNA_PROPERTY_FLAGS_NONE = 0,
 } LSPropertyFlags;
@@ -269,7 +300,7 @@ typedef struct {
 	LSPropertyFlags flags;	/**<Property flags */
 } LSProperty;
 
-/* @} END OF LunaService */
+/** @} END OF LunaService */
 
 /**
  * @addtogroup LunaServiceError
@@ -284,9 +315,37 @@ void LSErrorFree(LSError *error);
 bool LSErrorIsSet(LSError *lserror);
 
 void LSErrorPrint(LSError *lserror, FILE *out);
-void LSErrorLog(PmLogContext context, const char *message_id, LSError *lserror);
 
-/* @} END OF LunaServiceError */
+#ifdef USE_PMLOG_DECLARATION
+void LSErrorLog(PmLogContext context, const char *message_id, LSError *lserror);
+#endif
+void LSErrorLogDefault(const char *message_id, LSError *lserror);
+
+/** @} END OF LunaServiceError */
+
+/**
+ * @addtogroup LunaServiceGlobal
+ * @{
+ */
+void LSIdleTimeout(unsigned int timeout, void (*callback)(void*), void *userdata, GMainContext *ctx);
+
+/**
+ * @brief Mark specific message as "weak" (no activity associated with it)
+ *
+ * Effectively prohibit treatment of this message presence as an activity on LS2
+ * bus.
+ *
+ * @param message  IN  message to mark it as "weak"
+ *
+ * @note Marking the same LSMessage as inactive more than once is undefined behavior
+ * @note Message is treated as active by default. Service with active messages(subscriptions)
+ *       will not receive idle timeout callback. Message marked as inavtive does
+ *       not prevent idle timeout from being called
+ * @see LSIdleTimeout
+ */
+void LSMessageMarkInactive(LSMessage *message);
+
+/** @} END OF LunaServiceGlobal */
 
 /**
  * @addtogroup LunaServiceRegistration
@@ -298,9 +357,13 @@ void LSErrorLog(PmLogContext context, const char *message_id, LSError *lserror);
 bool LSRegister(const char *name, LSHandle **sh,
                   LSError *lserror);
 
+bool LSRegisterApplicationService(const char *name, const char *app_id, LSHandle **sh,
+                  LSError *lserror);
+
 bool LSRegisterPubPriv(const char *name, LSHandle **sh,
                   bool public_bus,
-                  LSError *lserror);
+                  LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
 typedef void (*LSDisconnectHandler)(LSHandle *sh, void *user_data);
 bool LSSetDisconnectHandler(LSHandle *sh, LSDisconnectHandler disconnect_handler,
@@ -319,6 +382,9 @@ bool LSRegisterCategoryAppend(LSHandle *sh, const char *category,
 bool LSCategorySetData(LSHandle *sh, const char *category,
                        void *user_data, LSError *lserror);
 
+bool LSMethodSetData(LSHandle *sh, const char *category, const char *method,
+                     void *user_data, LSError *lserror);
+
 bool LSUnregister(LSHandle *service, LSError *lserror);
 
 const char * LSHandleGetName(LSHandle *sh);
@@ -327,22 +393,28 @@ const char * LSHandleGetName(LSHandle *sh);
 
 bool LSRegisterPalmService(const char *name,
                   LSPalmService **ret_palm_service,
-                  LSError *lserror);
+                  LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
-bool LSUnregisterPalmService(LSPalmService *psh, LSError *lserror);
+bool LSUnregisterPalmService(LSPalmService *psh, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
 bool LSPalmServiceRegisterCategory(LSPalmService *psh,
     const char *category,
     LSMethod *methods_public, LSMethod *methods_private,
-    LSSignal *langis, void *category_user_data, LSError *lserror);
+    LSSignal *langis, void *category_user_data, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
-LSHandle * LSPalmServiceGetPrivateConnection(LSPalmService *psh);
-LSHandle * LSPalmServiceGetPublicConnection(LSPalmService *psh);
+LSHandle * LSPalmServiceGetPrivateConnection(LSPalmService *psh)
+    LS_DEPRECATED_PUBPRIV;
+LSHandle * LSPalmServiceGetPublicConnection(LSPalmService *psh)
+    LS_DEPRECATED_PUBPRIV;
 
 bool LSPushRole(LSHandle *sh, const char *role_path, LSError *lserror);
-bool LSPushRolePalmService(LSPalmService *psh, const char *role_path, LSError *lserror);
+bool LSPushRolePalmService(LSPalmService *psh, const char *role_path, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
-/* @} END OF LunaServiceRegistration */
+/** @} END OF LunaServiceRegistration */
 
 /**
  * @addtogroup LunaServiceMessage
@@ -352,7 +424,8 @@ bool LSPushRolePalmService(LSPalmService *psh, const char *role_path, LSError *l
 /* LSMessage (Luna Service Message) functions */
 
 LSHandle * LSMessageGetConnection(LSMessage *message);
-bool LSMessageIsPublic(LSPalmService *psh, LSMessage *message);
+bool LSMessageIsPublic(LSPalmService *psh, LSMessage *message)
+    LS_DEPRECATED_PUBPRIV;
 
 void LSMessageRef(LSMessage *message);
 void LSMessageUnref(LSMessage *message);
@@ -371,6 +444,7 @@ const char * LSMessageGetCategory(LSMessage *message);
 const char * LSMessageGetMethod(LSMessage *message);
 
 const char * LSMessageGetPayload(LSMessage *message);
+LSPayload *LSMessageAccessPayload(LSMessage *message);
 
 bool LSMessageIsSubscription(LSMessage *lsmgs);
 
@@ -378,12 +452,14 @@ LSMessageToken LSMessageGetToken(LSMessage *call);
 LSMessageToken LSMessageGetResponseToken(LSMessage *reply);
 
 bool LSMessageRespond(LSMessage *message, const char *reply_payload,
-                LSError *lserror);
+                      LSError *lserror);
+bool LSMessageRespondWithPayload(LSMessage *lsmsg, LSPayload *replyPayload,
+                                 LSError *lserror);
 
 bool LSMessageReply(LSHandle *sh, LSMessage *lsmsg, const char *replyPayload,
-                LSError *lserror);
+                    LSError *lserror);
 
-/* @} END OF LunaServiceMessage */
+/** @} END OF LunaServiceMessage */
 
 /**
  * @addtogroup LunaServiceMainloop
@@ -397,16 +473,19 @@ GMainContext * LSGmainGetContext(LSHandle *sh, LSError *lserror);
 bool LSGmainAttach(LSHandle *sh, GMainLoop *mainLoop, LSError *lserror);
 bool LSGmainContextAttach(LSHandle *sh, GMainContext *mainContext, LSError *lserror);
 
-bool LSGmainAttachPalmService(LSPalmService *psh, GMainLoop *mainLoop, LSError *lserror);
-bool LSGmainContextAttachPalmService(LSPalmService *psh, GMainContext *mainLoop, LSError *lserror);
+bool LSGmainAttachPalmService(LSPalmService *psh, GMainLoop *mainLoop, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
+bool LSGmainContextAttachPalmService(LSPalmService *psh, GMainContext *mainLoop, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
 bool LSGmainDetach(LSHandle *sh, LSError *lserror);
 
 bool LSGmainSetPriority(LSHandle *sh, int priority, LSError *lserror);
 
-bool LSGmainSetPriorityPalmService(LSPalmService *psh, int priority, LSError *lserror);
+bool LSGmainSetPriorityPalmService(LSPalmService *psh, int priority, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
-/* @} END OF LunaServiceMainloop */
+/** @} END OF LunaServiceMainloop */
 
 /**
  * @addtogroup LunaServiceClient
@@ -415,37 +494,37 @@ bool LSGmainSetPriorityPalmService(LSPalmService *psh, int priority, LSError *ls
 
 
 /**
-* @brief Function callback to be called when serviceName connects/disconnects.
+* @brief Function callback to be called when serviceName connects or disconnects.
 *
-* @param  sh             service handle
+* @param  sh             service handle(#LSHandle)
 * @param  serviceName    name of service that was brought up/down.
 * @param  connected      service was brought up if true.
 *
-* @retval
+* @return true on success, otherwise false
 */
 typedef bool (*LSServerStatusFunc) (LSHandle *sh, const char *serviceName,
                                   bool connected,
                                   void *ctx);
 
 /**
-* @brief Callback function called on incomming message.
+* @brief Callback function called on incoming message.
 *
-* @param  sh             service handle
-* @param  reply          reply message
+* @param  sh             service handle(#LSHandle)
+* @param  reply          incoming message
 * @param  void *         context
 *
-* @retval true if message is handled.
+* @return true if message is handled.
 */
 typedef bool (*LSFilterFunc) (LSHandle *sh, LSMessage *reply, void *ctx);
 
 /**
-* @brief Function callback to be called when service cancelled call.
+* @brief The function will be called when call originator cancels a call.
 *
-* @param  sh             service handle
-* @param  uniqueToken    cancelled message unique token.
+* @param  sh             service handle(#LSHandle)
+* @param  uniqueToken    token of cancelled message.
 * @param  ctx            context for function callback.
 *
-* @retval
+* @return true if message is cancelled
 */
 typedef bool (*LSCancelNotificationFunc) (LSHandle *sh,
                                   const char *uniqueToken,
@@ -484,7 +563,7 @@ bool LSCallSetTimeout(
        LSHandle *sh, LSMessageToken token,
        int timeout_ms, LSError *lserror);
 
-/* @} END OF LunaServiceClient */
+/** @} END OF LunaServiceClient */
 
 /**
  * @addtogroup LunaServiceSubscription
@@ -518,13 +597,19 @@ bool LSSubscriptionReply(LSHandle *sh, const char *key,
                     const char *payload, LSError *lserror);
 
 bool LSSubscriptionRespond(LSPalmService *psh, const char *key,
-                      const char *payload, LSError *lserror);
+                      const char *payload, LSError *lserror)
+    LS_DEPRECATED_PUBPRIV;
 
 bool LSSubscriptionPost(LSHandle *sh, const char *category,
         const char *method,
         const char *payload, LSError *lserror);
 
-/* @} END OF LunaServiceSubscription */
+unsigned int LSSubscriptionGetHandleSubscribersCount(LSHandle *sh, const char *key);
+
+unsigned int LSSubscriptionGetServiceSubscribersCount(LSPalmService *psh, const char *key)
+    LS_DEPRECATED_PUBPRIV;
+
+/** @} END OF LunaServiceSubscription */
 
 /**
  * @addtogroup LunaServiceSignals
@@ -548,7 +633,7 @@ bool LSSignalCallCancel(LSHandle *sh, LSMessageToken token, LSError *lserror);
 
 bool LSRegisterServerStatus(LSHandle *sh, const char *serviceName,
               LSServerStatusFunc func, void *ctx, LSError *lserror)
-    __attribute__((deprecated));
+    LS_DEPRECATED_MSG("Use LSRegisterServerStatusEx instead");
 
 bool LSRegisterServerStatusEx(LSHandle *sh, const char *serviceName,
                               LSServerStatusFunc func, void *ctxt,
@@ -556,8 +641,7 @@ bool LSRegisterServerStatusEx(LSHandle *sh, const char *serviceName,
 
 bool LSCancelServerStatus(LSHandle *sh, void *cookie, LSError *lserror);
 
-/* @} END OF LunaServiceSignals */
-
+/** @} END OF LunaServiceSignals */
 
 
 #ifdef __cplusplus

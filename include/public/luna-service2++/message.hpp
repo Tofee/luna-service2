@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
 #include <luna-service2/lunaservice.h>
 #include <cassert>
 #include <iostream>
+
+#include "error.hpp"
+#include "payload.hpp"
 
 namespace LS {
 
@@ -33,10 +34,23 @@ class Handle;
 class Message
 {
 public:
-    Message() : _message(nullptr) {}
+    Message() : _message(nullptr) { }
 
-    Message(const Message &);
-    Message& operator=(const Message &);
+    Message(const Message &o)
+    {
+        _message = o._message;
+        if (_message) LSMessageRef(_message);
+    }
+
+    Message& operator=(const Message &o)
+    {
+        if (this == &o)
+            return *this;
+        if (_message) LSMessageUnref(_message);
+        _message = o._message;
+        if (_message) LSMessageRef(_message);
+        return *this;
+    }
 
     Message(Message &&other) : _message(other._message)
     {
@@ -49,15 +63,21 @@ public:
         LSMessageRef(_message);
     }
 
-
-    Message &operator=(Message &&other);
-
-    ~Message()
+    Message &operator=(Message &&other)
     {
         if (_message)
         {
             LSMessageUnref(_message);
         }
+        _message = other._message;
+        other._message = nullptr;
+        return *this;
+    }
+
+    ~Message()
+    {
+        if (_message)
+            LSMessageUnref(_message);
     }
 
     /**
@@ -125,6 +145,16 @@ public:
         return LSMessageGetPayload(_message);
     }
 
+    /**
+     * Access payload in message
+     *
+     * @return Valid PayloadRef
+     */
+    LS::PayloadRef accessPayload() const
+    {
+        return LSMessageAccessPayload(_message);
+    }
+
     LSMessageToken getMessageToken() const
     {
         return LSMessageGetToken(_message);
@@ -140,7 +170,26 @@ public:
         return LSMessageIsSubscription(_message);
     }
 
-    void respond(const char *reply_payload);
+    void respond(const char *reply_payload)
+    {
+        Error error;
+
+        if (!LSMessageRespond(_message, reply_payload, error.get()))
+            throw error;
+    }
+
+    /**
+     * Respond with payload via LS2.
+     *
+     * @param payload a payload to respond
+     * @note Throw an exception on failure.
+     */
+    void respond(LS::Payload payload)
+    {
+        Error error;
+
+        if (!LSMessageRespondWithPayload(_message, payload, error)) throw error;
+    }
 
     void reply(Handle &service_handle, const char *reply_payload);
 
@@ -149,7 +198,13 @@ private:
 
 private:
 
-    friend std::ostream &operator<<(std::ostream &os, const Message &message);
+    friend std::ostream &operator<<(std::ostream &os, const Message &message)
+    {
+        return os << "LS MESSAGE from service '" << message.getSenderServiceName()
+            << "'" << ", category: '" << message.getCategory() << "'"
+            << ", method: '" << message.getMethod() << "'" << ", payload: "
+            << message.getPayload();
+    }
 };
 
 } //namespace LS;

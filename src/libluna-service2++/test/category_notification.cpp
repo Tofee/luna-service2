@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
+
+#include <pbnjson.hpp>
 #include <luna-service2/lunaservice.hpp>
-#include <boost/scope_exit.hpp>
-#include <glib.h>
-#include <thread>
-#include "util.hpp"
+
+#include "test_util.hpp"
 
 using namespace std;
 using namespace pbnjson;
-
 
 TEST(CategoryNotification, First)
 {
@@ -49,14 +46,10 @@ TEST(CategoryNotification, First)
     auto watch = LS::registerService("a.b.watch");
     watch.attachToLoop(context.get());
 
-    auto call = watch.callMultiReply("luna://com.palm.bus/signal/registerServiceCategory",
+    auto call = watch.callMultiReply("luna://com.webos.service.bus/signal/registerServiceCategory",
                                      "{\"serviceName\": \"com.palm.A\"}",
                                      Watch::callback, &notifications);
-    BOOST_SCOPE_EXIT((&call)) {
-        call.cancel();
-    } BOOST_SCOPE_EXIT_END
-
-    process_context(context.get());
+    LoopContext{2, context.get()};
 
     // Register and kick-off watched service
     struct A
@@ -96,20 +89,19 @@ TEST(CategoryNotification, First)
         { nullptr }
     };
     a.registerCategory("/category2", methods3, nullptr, nullptr);
+    LoopContext{100, context.get()};
 
-    process_context(context.get(), 100);
+    ASSERT_EQ((size_t)4, notifications.size());
 
-    ASSERT_EQ(4, notifications.size());
+    EXPECT_EQ(Object(), JDomParser::fromString(notifications[0]));
 
-    EXPECT_EQ(JRef::object(), fromJson(notifications[0]));
+    auto ref1 = JValue{{"/category1", JArray{"baz","bar"}}};
+    EXPECT_EQ(ref1, JDomParser::fromString(notifications[1]));
 
-    auto ref1 = JRef{{"/category1", JRef::array({"baz","bar"})}};
-    EXPECT_EQ(ref1, fromJson(notifications[1]));
+    auto ref2 = JValue{{"/category1", JArray{"baz","bar", "baz2", "bar2"}}};
+    EXPECT_EQ(ref2, JDomParser::fromString(notifications[2]));
 
-    auto ref2 = JRef{{"/category1", JRef::array({"baz","bar", "baz2", "bar2"})}};
-    EXPECT_EQ(ref2, fromJson(notifications[2]));
-
-    auto ref3 = JRef{{"/category1", JRef::array({"baz","bar", "baz2", "bar2"})},
-                     {"/category2", JRef::array({"bar","foo"})}};
-    EXPECT_EQ(ref3, fromJson(notifications[3]));
+    auto ref3 = JValue{{"/category1", JArray{"baz","bar", "baz2", "bar2"}},
+                       {"/category2", JArray{"bar","foo"}}};
+    EXPECT_EQ(ref3, JDomParser::fromString(notifications[3]));
 }

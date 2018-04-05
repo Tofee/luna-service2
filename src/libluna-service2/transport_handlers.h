@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #ifndef _TRANSPORT_HANDLERS_H_
@@ -24,11 +22,14 @@
 #include "transport_message.h"
 #include "transport_client.h"
 
+/** @cond INTERNAL */
+
 typedef enum
 {
     LSMessageHandlerResultHandled,          /**< message was handled */
     LSMessageHandlerResultNotHandled,       /**< message was not handled; error will be sent as reply */
     LSMessageHandlerResultUnknownMethod,    /**< method was not found; error will be sent as reply */
+    LSMessageHandlerResultPermissionDenied, /**< required group not found; error will be sent as reply */
 } LSMessageHandlerResult;
 
 typedef LSMessageHandlerResult (*LSTransportMessageHandler)(_LSTransportMessage *message, void *context);
@@ -51,7 +52,7 @@ typedef enum {
     _LSTransportMessageFailureTypeMessageContentError,  /**< badly formatted message (corrupt or fake) */
 } _LSTransportMessageFailureType;
 
-typedef void (*LSTransportMessageFailure)(LSMessageToken global_token, _LSTransportMessageFailureType failure_type, void *context);
+typedef void (*LSTransportMessageFailure)(_LSTransportMessage *message, _LSTransportMessageFailureType failure_type, void *context);
 
 typedef struct LSTransportHandlers {
     LSTransportMessageFailure    message_failure_handler;   /**< callback to handle when a message fails to be delivered to the other side */
@@ -63,5 +64,7 @@ typedef struct LSTransportHandlers {
     LSTransportMessageHandler msg_handler;                  /**< callback to handle incoming messages */
     void *msg_context;
 } LSTransportHandlers;
+
+/** @endcond */
 
 #endif      // _TRANSPORT_HANDLERS_H_

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -22,6 +20,8 @@
 #include <glib.h>
 #include <base.h>
 #include <category.h>
+#include "transport.h"
+#include "transport_priv.h"
 
 /* Test data ******************************************************************/
 
@@ -136,56 +136,80 @@ test_LSErrorFree(TestData *fixture, gconstpointer user_data)
 static void
 test_LSErrorPrint(TestData *fixture, gconstpointer user_data)
 {
+#if GLIB_CHECK_VERSION(2, 38, 0)
     LSError error;
     LSErrorInit(&error);
     _LSErrorSetNoPrint(&error, LS_ERROR_CODE_UNKNOWN_ERROR, LS_ERROR_TEXT_UNKNOWN_ERROR);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         LSErrorPrint(&error, stderr);
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     gchar *expected_stderr = g_strdup_printf("LUNASERVICE ERROR %d: %s (%s @ %s:%d)\n",
-             error.error_code, error.message, error.func, error.file, error.line);
+                                             error.error_code, error.message, error.func, error.file, error.line);
     g_test_trap_assert_stderr(expected_stderr);
     g_free(expected_stderr);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    LSErrorFree(&error);
+#endif
+}
+
+static void
+test_LSErrorPrintNull(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         LSErrorPrint(NULL, stderr);
         exit(0);
     }
-    g_test_trap_assert_stderr("LUNASERVICE ERROR: lserror is NULL. Did you pass in a LSError?");
 
-    LSErrorFree(&error);
+    g_test_trap_subprocess(NULL, 0, 0);
+    g_test_trap_assert_stderr("LUNASERVICE ERROR: lserror is NULL. Did you pass in a LSError?");
+#endif
 }
 
 static void
 test_LSErrorLog(TestData *fixture, gconstpointer user_data)
 {
+#if GLIB_CHECK_VERSION(2, 38, 0)
     LSError lserror;
     LSErrorInit(&lserror);
     _LSErrorSetNoPrint(&lserror, LS_ERROR_CODE_UNKNOWN_ERROR, LS_ERROR_TEXT_UNKNOWN_ERROR);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         LOG_LSERROR("LS_TEST_ERROR", &lserror);
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     gchar *expected_stderr = g_strdup_printf("{\"ERROR_CODE\":%d,\"ERROR\":\"%s\",\"FUNC\":\"%s\",\"FILE\":\"%s\",\"LINE\":%d"
                                              "} LUNASERVICE ERROR\n",
                                              lserror.error_code, lserror.message, lserror.func, lserror.file, lserror.line);
     g_test_trap_assert_stderr(expected_stderr);
     g_free(expected_stderr);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    LSErrorFree(&lserror);
+#endif
+}
+
+static void
+test_LSErrorLogNull(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         LOG_LSERROR("LS_TEST_ERROR", NULL);
         exit(0);
     }
-    g_test_trap_assert_stderr("lserror is NULL. Did you pass in a LSError?\n");
 
-    LSErrorFree(&lserror);
+    g_test_trap_subprocess(NULL, 0, 0);
+    g_test_trap_assert_stderr("lserror is NULL. Did you pass in a LSError?\n");
+#endif
 }
 
 static void
@@ -243,41 +267,127 @@ test_LSErrorSetFromErrnoFunc(TestData *fixture, gconstpointer user_data)
 static void
 test_LSDebugLogIncoming(TestData *fixture, gconstpointer user_data)
 {
-    const char *expected_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0\n";
-    const char *expected_verbose_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0 payload: {}\n";
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    static const char *expected_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0\n";
 
     setenv("G_MESSAGES_DEBUG", "all", 1);
-
     PmLogSetContextLevel(PmLogGetLibContext(), kPmLogLevel_Debug);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         LSDebugLogIncoming("where", GINT_TO_POINTER(1));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_stderr_unmatched(expected_stdout);
+#endif
+}
+
+static void
+test_LSDebugLogIncomingTracing(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    static const char *expected_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0\n";
+    //static const char *expected_verbose_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0 payload: {}\n";
+
+    setenv("G_MESSAGES_DEBUG", "all", 1);
+    PmLogSetContextLevel(PmLogGetLibContext(), kPmLogLevel_Debug);
 
     // enable DEBUG_TRACING
     _ls_debug_tracing = 1;
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         LSDebugLogIncoming("where", GINT_TO_POINTER(1));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_stderr(expected_stdout);
+
+    _ls_debug_tracing = 0;
+#endif
+}
+
+static void
+test_LSDebugLogIncomingVerbose(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    static const char *expected_verbose_stdout = "RX: where token <<0>> sender: com.name.service sender_unique: com.name.service.0 payload: {}\n";
+
+    setenv("G_MESSAGES_DEBUG", "all", 1);
+    PmLogSetContextLevel(PmLogGetLibContext(), kPmLogLevel_Debug);
 
     // enable DEBUG_VERBOSE
     _ls_debug_tracing = 2;
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         LSDebugLogIncoming("where", GINT_TO_POINTER(1));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_stderr(expected_verbose_stdout);
 
     _ls_debug_tracing = 0;
+#endif
+}
+
+gboolean timeout = FALSE;
+static void test_LSIdleTimeout_helper(void *loop)
+{
+    timeout = TRUE;
+    g_main_loop_quit(loop);
+    g_main_loop_unref(loop);
+}
+
+static void
+test_LSIdleTimeout(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    LSError error;
+    LSErrorInit(&error);
+    LSHandle *sh = NULL;
+
+    GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+    GMainContext *ctx = g_main_loop_get_context(loop);
+
+    GSource *s_quit = g_timeout_source_new(1000);
+    g_source_set_callback(s_quit, (GSourceFunc)g_main_loop_quit, loop, (GDestroyNotify)g_main_loop_unref);
+    g_source_attach(s_quit, ctx);
+    g_source_unref(s_quit);
+
+    LSIdleTimeout(1, test_LSIdleTimeout_helper, loop, ctx);
+    LSRegister("com.name.service", &sh, &error);
+    g_main_loop_run(loop);
+    g_assert(timeout);
+    LSUnregister(sh, &error);
+
+    LSErrorFree(&error);
+#endif
+}
+
+static void
+test_LSRegisterAndUnregisterSubprocess(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    LSError error;
+    LSErrorInit(&error);
+    LSHandle *sh = NULL;
+
+    setenv("LS_DEBUG", "2", 1);
+    setenv("LS_ENABLE_UTF8", "2", 1);
+
+    LSRegister("com.name.service", &sh, &error);
+    g_assert_cmpint(_ls_debug_tracing, ==, 2);
+    g_assert(_ls_enable_utf8_validation == true);
+    LSUnregister(sh, &error);
+
+    LSErrorFree(&error);
+    exit(0);
+#endif
 }
 
 static void
@@ -288,19 +398,11 @@ test_LSRegisterAndUnregister(TestData *fixture, gconstpointer user_data)
 
     LSHandle *sh = NULL;
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        setenv("LS_DEBUG", "2", 1);
-        setenv("LS_ENABLE_UTF8", "2", 1);
-
-        LSRegister("com.name.service", &sh, &error);
-        g_assert_cmpint(_ls_debug_tracing, ==, 2);
-        g_assert(_ls_enable_utf8_validation == true);
-        LSUnregister(sh, &error);
-        exit(0);
-    }
-    g_test_trap_assert_stderr("Log mode enabled to level 2\nEnable UTF8 validation on payloads\n");
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    g_test_trap_subprocess("/luna-service2/LSRegisterAndUnregister/subprocess", 0, 0);
+    g_test_trap_assert_stderr("Log mode enabled to level 2\nEnable UTF8 validation on payloads\n*");
     g_test_trap_assert_passed();
+#endif
 
     g_assert(LSRegister("com.name.service", &sh, &error));
     g_assert(NULL != sh);
@@ -314,17 +416,31 @@ test_LSRegisterAndUnregister(TestData *fixture, gconstpointer user_data)
     g_assert(!LSErrorIsSet(&error));
     g_assert(LSUnregister(sh, &error));
     g_assert(!LSErrorIsSet(&error));
+}
 
-    g_assert(LSRegisterPubPriv("com.name.service", &sh, false, &error));
-    g_assert(NULL != sh);
-    g_assert(!LSErrorIsSet(&error));
-
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+static void
+test_HandleValidate(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
+        LSError error;
+        LSErrorInit(&error);
+        LSHandle *sh = NULL;
+
+        g_assert(LSRegisterPubPriv("com.name.service", &sh, false, &error));
+        g_assert(NULL != sh);
+        g_assert(!LSErrorIsSet(&error));
+
         sh->history.magic_state_num = 0;
         _lshandle_validate(sh);
+
+        g_assert(LSUnregister(sh, &error));
+        g_assert(!LSErrorIsSet(&error));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     // _lshandle_validate calls assert which aborts only in debug build
 #ifdef NDEBUG
     g_test_trap_assert_passed();
@@ -332,26 +448,7 @@ test_LSRegisterAndUnregister(TestData *fixture, gconstpointer user_data)
     g_test_trap_assert_failed();
 #endif
     g_test_trap_assert_stderr("*Invalid LSHandle*");
-
-    g_assert(LSUnregister(sh, &error));
-    g_assert(!LSErrorIsSet(&error));
-}
-
-static void
-test_FetchMessageQueueGet(TestData *fixture, gconstpointer user_data)
-{
-    LSError error;
-    LSErrorInit(&error);
-
-    LSHandle *sh = NULL;
-    LSRegister("com.name.service", &sh, &error);
-
-    LSMessage *msg = NULL;
-    g_assert(_FetchMessageQueueGet(sh, &msg, &error));
-    // no message in queue
-    g_assert(NULL == msg);
-
-    LSUnregister(sh, &error);
+#endif //GLIB_CHECK_VERSION
 }
 
 static void
@@ -369,14 +466,25 @@ test_LSSetDisconnectHandler(TestData *fixture, gconstpointer user_data)
     g_assert(sh->disconnect_handler_data == GINT_TO_POINTER(2));
 
     LSUnregister(sh, &error);
+}
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+static void
+test_LSSetDisconnectHandlerNull(TestData *fixture, gconstpointer user_data)
+{
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
+        LSError error;
+        LSErrorInit(&error);
+
         g_assert(!LSSetDisconnectHandler(NULL, GINT_TO_POINTER(1), GINT_TO_POINTER(2), &error));
         LSErrorFree(&error);
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_passed();
+#endif
 }
 
 static void
@@ -441,15 +549,19 @@ test_LSRegisterCategory(TestData *fixture, gconstpointer user_data)
     g_assert(g_hash_table_lookup(table->methods, "test_method"));
     g_assert(g_hash_table_lookup(table->signals, "test_signal"));
 
+#if GLIB_CHECK_VERSION(2, 38, 0)
     // registering same methods again should fail
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         g_assert(!LSRegisterCategory(sh, "/", methods, NULL, NULL, &error));
         g_assert(LSErrorIsSet(&error));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_passed();
     g_test_trap_assert_stderr("*Category / already registered.\n");
+#endif
 
     LSUnregister(sh, &error);
 }
@@ -557,14 +669,18 @@ test_LSPushRolePalmService(TestData *fixture, gconstpointer user_data)
 
     g_assert(LSPushRolePalmService(psh, "/path/to/role.json", &error));
 
+#if GLIB_CHECK_VERSION(2, 38, 0)
     // pushing to NULL service should fail
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
         g_assert(!LSPushRolePalmService(NULL, "/path/to/role.json", &error));
         g_assert(LSErrorIsSet(&error));
         exit(0);
     }
+
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_passed();
+#endif
 
     g_assert(LSUnregisterPalmService(psh, &error));
 }
@@ -626,18 +742,26 @@ test_serviceDefaultMethods(TestData *fixture, gconstpointer user_data)
     // build a semi-valid transport message
     _LSTransportClient dummy_client = {
         .service_name = "dummy",
+        .transport = sh->transport,
+        .permissions = _LSClientAllowBoth,
     };
+    _LSTransportMessageRaw raw = {
+        .header.is_public_bus = sh->is_public_bus
+    };
+    const char *const REQUIRED_GROUPS = "[\"test\"]";
+    _LSTransportClientInitializeSecurityGroups(&dummy_client, REQUIRED_GROUPS);
     _LSTransportMessage dummy_transport_msg = {
+        .raw = &raw,
         .client = &dummy_client,
     };
 
     g_assert(NULL != fixture->transport_handlers.msg_handler);
-    g_assert_cmpint(fixture->transport_handlers.msg_handler(&dummy_transport_msg, sh), ==, LSMessageHandlerResultHandled);
+    g_assert_cmpint(fixture->transport_handlers.msg_handler(&dummy_transport_msg, sh->transport->msg_context), ==, LSMessageHandlerResultHandled);
     g_assert_cmpstr(fixture->lsmessagereply_payload, ==, "{\"returnValue\":true}");
     g_assert_cmpint(fixture->lshandlereply_called, ==, 0);
 
     fixture->transportmessage_type = _LSTransportMessageTypeSignal;
-    g_assert_cmpint(fixture->transport_handlers.msg_handler(&dummy_transport_msg, sh), ==, LSMessageHandlerResultHandled);
+    g_assert_cmpint(fixture->transport_handlers.msg_handler(&dummy_transport_msg, sh->transport->msg_context), ==, LSMessageHandlerResultHandled);
     g_assert_cmpint(fixture->lshandlereply_called, ==, 1);
 
     LSUnregister(sh, &error);
@@ -684,26 +808,6 @@ _CallMapLock(_CallMap *map)
 {
 }
 
-bool
-_FetchMessageQueueGet(LSHandle *sh, LSMessage **ret_message, LSError *lserror)
-{
-    *ret_message = NULL;
-    return true;
-}
-
-// mainloop.c
-
-LSCustomMessageQueue*
-LSCustomMessageQueueNew(void)
-{
-    return GINT_TO_POINTER(1);
-}
-
-void
-LSCustomMessageQueueFree(LSCustomMessageQueue *q)
-{
-}
-
 // transport_message.c
 
 LSMessageToken
@@ -736,31 +840,74 @@ _LSTransportMessageGetType(const _LSTransportMessage *message)
     return test_data->transportmessage_type;
 }
 
-// transport.c
+static
+_LSTransport *_LSTransportNew(void)
+{
+    _LSTransport *transport = g_new0(_LSTransport, 1);
+#ifdef SECURITY_COMPATIBILITY
+    transport->is_old_config = true;
+#endif
+    return transport;
+}
+
+static
+void _LSTransportFree(_LSTransport *transport)
+{
+    g_free(transport);
+}
 
 bool
-_LSTransportInit(_LSTransport **ret_transport, const char *service_name,
-                 LSTransportHandlers *handlers, LSError *lserror)
+_LSTransportInit(_LSTransport **ret_transport, const char *service_name, const char *app_id,
+                 const LSTransportHandlers *handlers, LSError *lserror)
 {
-    *ret_transport = GINT_TO_POINTER(1);
-    // store handlers for testing
-    memcpy(&test_data->transport_handlers, handlers, sizeof(LSTransportHandlers));
+    *ret_transport = _LSTransportNew();
+
+    (*ret_transport)->msg_handler = handlers->msg_handler;
+    (*ret_transport)->msg_context = handlers->msg_context;
+    (*ret_transport)->clients     = g_hash_table_new_full(g_str_hash, g_str_equal,
+        (GDestroyNotify)g_free, (GDestroyNotify)_LSTransportClientUnref);
+
+    const char *const SECURITY_GROUPS = "[{\"category\": \"/*\", \"groups\": [\"test\"]}]";
+    _LSTransportInitializeSecurityGroups(*ret_transport,
+                                         SECURITY_GROUPS, strlen(SECURITY_GROUPS));
+
     return true;
 }
 
 void
 _LSTransportDeinit(_LSTransport *transport)
 {
+    _LSTransportFree(transport);
 }
 
 bool
-_LSTransportConnect(_LSTransport *transport, bool local, bool public_bus, LSError *lserror)
+_LSTransportConnect(_LSTransport *transport, LSError *lserror)
+{
+    // store handlers for testing
+    // This is done in Connect() because LSRegister() may manipulate the original
+    // ones in security compatibility.
+    test_data->transport_handlers.message_failure_handler = transport->message_failure_handler;
+    test_data->transport_handlers.message_failure_context = transport->message_failure_context;
+
+    test_data->transport_handlers.disconnect_handler = transport->disconnect_handler;
+    test_data->transport_handlers.disconnect_context = transport->disconnect_context;
+
+    test_data->transport_handlers.msg_handler = transport->msg_handler;
+    test_data->transport_handlers.msg_context = transport->msg_context;
+
+    transport->is_private_allowed = transport->is_public_allowed = true;
+
+    return true;
+}
+
+bool
+_LSTransportNodeUp(_LSTransport *transport, bool is_public_bus, LSError *lserror)
 {
     return true;
 }
 
 bool
-_LSTransportAppendCategory(_LSTransport *transport, const char *category, LSMethod *methods, LSError *lserror)
+_LSTransportAppendCategory(_LSTransport *transport, bool is_public_bus, const char *category, LSMethod *methods, LSError *lserror)
 {
     return true;
 }
@@ -772,7 +919,7 @@ _LSTransportDisconnect(_LSTransport *transport, bool flush_and_send_shutdown)
 }
 
 bool
-LSTransportPushRole(_LSTransport *transport, const char *path, LSError *lserror)
+LSTransportPushRole(_LSTransport *transport, const char *path, bool is_public_bus, LSError *lserror)
 {
     return true;
 }
@@ -823,6 +970,12 @@ LSMessageReply(LSHandle *sh, LSMessage *lsmsg, const char *replyPayload,
     return true;
 }
 
+void
+_LSMessageParsePayload(LSMessage *message)
+{
+    (void)message;
+}
+
 bool
 _LSHandleReply(LSHandle *sh, _LSTransportMessage *transport_msg)
 {
@@ -870,13 +1023,20 @@ main(int argc, char *argv[])
     LSTEST_ADD("/luna-service2/LSErrorSet", test_LSErrorSet);
     LSTEST_ADD("/luna-service2/LSErrorFree", test_LSErrorFree);
     LSTEST_ADD("/luna-service2/LSErrorPrint", test_LSErrorPrint);
+    LSTEST_ADD("/luna-service2/LSErrorPrintNull", test_LSErrorPrintNull);
     LSTEST_ADD("/luna-service2/LSErrorLog", test_LSErrorLog);
+    LSTEST_ADD("/luna-service2/LSErrorLogNull", test_LSErrorLogNull);
     LSTEST_ADD("/luna-service2/LSErrorSetFunc", test_LSErrorSetFunc);
     LSTEST_ADD("/luna-service2/LSErrorSetFromErrnoFunc", test_LSErrorSetFromErrnoFunc);
     LSTEST_ADD("/luna-service2/LSDebugLogIncoming", test_LSDebugLogIncoming);
+    LSTEST_ADD("/luna-service2/LSDebugLogIncomingTracing", test_LSDebugLogIncomingTracing);
+    LSTEST_ADD("/luna-service2/LSDebugLogIncomingVerbose", test_LSDebugLogIncomingVerbose);
+    LSTEST_ADD("/luna-service2/LSIdleTimeout", test_LSIdleTimeout);
     LSTEST_ADD("/luna-service2/LSRegisterAndUnregister", test_LSRegisterAndUnregister);
-    LSTEST_ADD("/luna-service2/FetchMessageQueueGet", test_FetchMessageQueueGet);
+    LSTEST_ADD("/luna-service2/LSRegisterAndUnregister/subprocess", test_LSRegisterAndUnregisterSubprocess);
+    LSTEST_ADD("/luna-service2/HandleValidate", test_HandleValidate);
     LSTEST_ADD("/luna-service2/LSSetDisconnectHandler", test_LSSetDisconnectHandler);
+    LSTEST_ADD("/luna-service2/LSSetDisconnectHandlerNull", test_LSSetDisconnectHandlerNull);
     LSTEST_ADD("/luna-service2/LSHandleGetName", test_LSHandleGetName);
     LSTEST_ADD("/luna-service2/LSRegisterAndUnregisterPalmService", test_LSRegisterAndUnregisterPalmService);
     LSTEST_ADD("/luna-service2/LSRegisterCategory", test_LSRegisterCategory);
@@ -889,4 +1049,3 @@ main(int argc, char *argv[])
 
     return g_test_run();
 }
-

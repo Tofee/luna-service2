@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
-
 #include <luna-service2/lunaservice.hpp>
-#include <payload.hpp>
+
+#include "json_payload.hpp"
 
 
 TEST(TestJSONPayload, JSONPayloadGetTest)

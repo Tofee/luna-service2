@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -63,11 +61,11 @@ test_LSTransportRegisterSignal(TestData *fixture, gconstpointer user_data)
     const char *category = "a";
     const char *method = "b";
 
-    g_assert(LSTransportRegisterSignal(&transport, category, method, &token, &error));
+    g_assert(LSTransportRegisterSignal(&transport, category, method, false, &token, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 1);
 
-    g_assert(LSTransportRegisterSignal(&transport, category, NULL, &token, &error));
+    g_assert(LSTransportRegisterSignal(&transport, category, NULL, false, &token, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 2);
 }
@@ -87,7 +85,7 @@ test_LSTransportUnregisterSignal(TestData *fixture, gconstpointer user_data)
     const char *category = "a";
     const char *method = "b";
 
-    g_assert(LSTransportUnregisterSignal(&transport, category, method, &token, &error));
+    g_assert(LSTransportUnregisterSignal(&transport, category, method, false, &token, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 1);
 }
@@ -106,7 +104,7 @@ test_LSTransportRegisterSignalServiceStatus(TestData *fixture, gconstpointer use
     LSMessageToken token = 0;
     const char *service_name = "com.name.service";
 
-    g_assert(LSTransportRegisterSignalServiceStatus(&transport, service_name, &token, &error));
+    g_assert(LSTransportRegisterSignalServiceStatus(&transport, service_name, false, &token, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 1);
 }
@@ -125,7 +123,7 @@ test_LSTransportUnregisterSignalServiceStatus(TestData *fixture, gconstpointer u
     LSMessageToken token = 0;
     const char *service_name = "com.name.service";
 
-    g_assert(LSTransportUnregisterSignalServiceStatus(&transport, service_name, &token, &error));
+    g_assert(LSTransportUnregisterSignalServiceStatus(&transport, service_name, false, &token, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 1);
 }
@@ -137,7 +135,7 @@ test_LSTransportMessageSignalNewRef(TestData *fixture, gconstpointer user_data)
     const char *method = "b";
     const char *payload = "{}";
 
-    _LSTransportMessage *msg = LSTransportMessageSignalNewRef(category, method, payload);
+    _LSTransportMessage *msg = LSTransportMessageSignalNewRef(category, method, payload, false);
     g_assert(NULL != msg);
     g_assert_cmpint(_LSTransportMessageGetType(msg), ==, _LSTransportMessageTypeSignal);
     g_assert_cmpstr(_LSTransportMessageGetCategory(msg), ==, category);
@@ -160,7 +158,7 @@ test_LSTransportSendSignal(TestData *fixture, gconstpointer user_data)
     const char *category = "a";
     const char *method = "b";
     const char *payload = "{}";
-    g_assert(LSTransportSendSignal(&transport, category, method, payload, &error));
+    g_assert(LSTransportSendSignal(&transport, category, method, payload, false, &error));
 
     g_assert_cmpint(fixture->lstransportsendmessage_call_count, ==, 1);
 }
@@ -173,7 +171,7 @@ test_LSTransportServiceStatusSignalGetServiceName(TestData *fixture, gconstpoint
     const char *payload = "{ \"serviceName\": \"com.name.service\" }";
     char *service_name = NULL;
 
-    _LSTransportMessage *msg = LSTransportMessageSignalNewRef(category, method, payload);
+    _LSTransportMessage *msg = LSTransportMessageSignalNewRef(category, method, payload, false);
 
     // LSTransportServiceStatusSignalGetServiceName is only valid for following message types:
     // - _LSTransportMessageTypeServiceDownSignal

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2010-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2010-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -30,12 +28,13 @@
 
 #include "transport_shm.h"
 
-#define SHM_NAME_PUB    "/ls2.monitor.pub.shm"
-#define SHM_NAME_PRV    "/ls2.monitor.priv.shm"
+#define SHM_NAME    "/ls2.monitor.shm"
 
 #define SHM_MODE      0666
 
 #define FENCE_VAL       0xdeadbeef
+
+/** @cond INTERNAL */
 
 struct _LSTransportShmData
 {
@@ -55,42 +54,21 @@ struct _LSTransportShm
 /** protects singleton mapping initialization from multiple threads */
 static pthread_mutex_t shm_map_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static _LSTransportShmData *shm_map_addr_pub = NULL;   /**< singleton mapping of
-                                                         the shared memory
-                                                         region for the process */
-
-static _LSTransportShmData *shm_map_addr_prv = NULL;   /**< singleton mapping of
-                                                         shared memory region for
-                                                         process */
+static _LSTransportShmData *shm_map_addr = NULL;   /**< singleton mapping of
+                                                     the shared memory
+                                                     region for the process */
 
 static _LSTransportShmData*
-_LSTransportShmInitOnce(bool public_bus, LSError *lserror)
+_LSTransportShmInitOnce(LSError *lserror)
 {
     bool shm_needs_init = true;
-    const char *shm_name = NULL;
     _LSTransportShmData *map = NULL;
     int fd = -1;
     int ret = 0;
 
-    if (public_bus)
-    {
-        shm_name = SHM_NAME_PUB;
-    }
-    else
-    {
-        shm_name = SHM_NAME_PRV;
-    }
-
     pthread_mutex_lock(&shm_map_lock);
 
-    if (public_bus)
-    {
-        map = shm_map_addr_pub;
-    }
-    else
-    {
-        map = shm_map_addr_prv;
-    }
+    map = shm_map_addr;
 
     if (map)
     {
@@ -98,7 +76,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
         goto unlock;
     }
 
-    fd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, SHM_MODE);
+    fd = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, SHM_MODE);
 
     if (fd == -1)
     {
@@ -107,7 +85,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
         {
             shm_needs_init = false;
 
-            fd = shm_open(shm_name, O_RDWR, SHM_MODE);
+            fd = shm_open(SHM_NAME, O_RDWR, SHM_MODE);
 
             if (fd == -1)
             {
@@ -175,14 +153,7 @@ _LSTransportShmInitOnce(bool public_bus, LSError *lserror)
     }
 
     /* success, so save the resulting mappping */
-    if (public_bus)
-    {
-        shm_map_addr_pub = map;
-    }
-    else
-    {
-        shm_map_addr_prv = map;
-    }
+    shm_map_addr = map;
 
 unlock:
     pthread_mutex_unlock(&shm_map_lock);
@@ -190,20 +161,27 @@ unlock:
     /* closing the fd is ok since we've already mmap'ed in the memory
      * see man shm_open for more details */
     if (fd != -1) close(fd);
+
     return map;
 
 error:
     pthread_mutex_unlock(&shm_map_lock);
+
+    /* Closing the fd doesn't unmap the region
+    * see man mmap for more details */
+    if (map && map != MAP_FAILED) munmap(map, sizeof(*map));
+
     if (fd != -1) close(fd);
+
     return MAP_FAILED;
 }
 
 bool
-_LSTransportShmInit(_LSTransportShm** shm, bool public_bus, LSError* lserror)
+_LSTransportShmInit(_LSTransportShm** shm, LSError* lserror)
 {
     _LSTransportShm* ret_shm = g_new0(_LSTransportShm, 1);
 
-    ret_shm->data = _LSTransportShmInitOnce(public_bus, lserror);
+    ret_shm->data = _LSTransportShmInitOnce(lserror);
 
     if (ret_shm->data == MAP_FAILED)
     {
@@ -253,3 +231,5 @@ _LSTransportShmDeinit(_LSTransportShm** shm)
     g_free((*shm));
     *shm = NULL;
 }
+
+/** @endcond */

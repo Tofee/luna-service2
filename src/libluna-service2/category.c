@@ -1,22 +1,18 @@
-/****************************************************************
- * @@@LICENSE
- *
- * Copyright (c) 2014 LG Electronics, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * LICENSE@@@
- ****************************************************************/
+// Copyright (c) 2014-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 /**
  *  @file category.c
@@ -32,6 +28,7 @@
 #include <pthread.h>
 
 /**
+ * @cond INTERNAL
  * @addtogroup LunaServiceInternals
  * @{
  */
@@ -58,22 +55,18 @@ _LSCategoryTableFree(LSCategoryTable *table)
 static char*
 _category_to_object_path_alloc(const char *category)
 {
-    char *category_path;
-
     if (NULL == category)
-    {
-        category_path = g_strdup("/"); // default category
-    }
-    else if ('/' == category[0])
-    {
-        category_path = g_strdup(category);
-    }
-    else
-    {
-        category_path = g_strdup_printf("/%s", category);
-    }
+        return g_strdup("/"); // default category
 
-    return category_path;
+    // Don't include the last tailing '/'
+    int len = strlen(category);
+    if (len > 1 && category[len - 1] == '/')
+        --len;
+
+    if ('/' == category[0])
+        return g_strndup(category, len);
+
+    return g_strdup_printf("/%.*s", len, category);
 }
 
 static bool
@@ -149,7 +142,30 @@ static void LSMethodEntryFree(void *methodEntry)
     jschema_release(&entry->schema_reply);
     jschema_release(&entry->schema_firstReply);
 
-    g_slice_free(LSMethodEntry, methodEntry);
+    g_free(entry->security_provided_groups);
+    g_slice_free(LSMethodEntry, entry);
+}
+
+LSSignal *LSSignalCopy(const LSSignal *other)
+{
+    LS_ASSERT(other);
+
+    LSSignal *self = g_slice_new0(LSSignal);
+
+    self->flags = other->flags;
+    self->name = strdup(other->name);
+
+    return self;
+}
+
+static void LSSignalFree(LSSignal *entry)
+{
+    LS_ASSERT(entry);
+
+    LSSignal *signal = entry;
+    free((void*)(signal->name));
+
+    g_slice_free(LSSignal, entry);
 }
 
 /* unfortunately J_CSTR_TO_JVAL(xxx) is not a constant */
@@ -223,28 +239,17 @@ static jschema_ref prepare_schema(jvalue_ref schema_value, jvalue_ref defs, LSEr
         }
     }
 
-    struct JErrorCallbacks errorCallbacks;
-    SetLSErrorCallbacks(&errorCallbacks, lserror);
-    jschema_ref schema = jschema_parse_jvalue(mixed_schema_value, &errorCallbacks, "");
-    if (schema == NULL)
+    jerror *error = NULL;
+    jschema_ref schema = jschema_jcreate(mixed_schema_value, &error);
+    if (error)
     {
-        const char *schema_json = jvalue_tostring(mixed_schema_value, jschema_all());
+        char buffer[256];
+        jerror_to_string(error, buffer, sizeof(buffer));
 
-        /* FIXME: remove work-around situation when schema parsing returns no
-         *        schema and reports no errors
-         */
-        if (!LSErrorIsSet(lserror))
-        {
-            _LSErrorSetNoPrint(lserror, -1, "Failed to parse schema %s", schema_json);
-            LOG_LS_DEBUG("unknown schema parse error for %s", schema_json);
-        }
-        else
-        {
-            LOG_LS_DEBUG("schema parse error \"%s\" for schema %s",
-                         lserror->message, schema_json);
-        }
-
+        _LSErrorSetNoPrint(lserror, -1, "Failed to parse schema %s", buffer);
+        jerror_free(error);
     }
+
     j_release(&mixed_schema_value);
 
     return schema;
@@ -294,50 +299,41 @@ static jschema_ref get_null_schema()
 
 bool LSCategoryValidateCall(LSMethodEntry *entry, LSMessage *message)
 {
-    const char *badReplyFallback = "{\"returnValue\":false,"
-                                    "\"errorText\":\"non-representable validation error\"}";
-
-    LS_ASSERT( entry->schema_call ); /* this is a bug if service didn't supplied a schema */
+    LS_ASSERT(entry->schema_call); /* this is a bug if service didn't supplied a schema */
 
     jvalue_ref reply = NULL;
-    const char *payload;
-    LSError error;
-    LSErrorInit(&error);
-    if (entry->schema_call == NULL)
+    if (entry->schema_call)
     {
-        payload = "{\"returnValue\":false,"
-                   "\"errorText\":\"service didn't provided schema, but expects validation\"}";
-    }
-    else
-    {
-        struct JErrorCallbacks errorCallbacks;
-        JSchemaInfo schemaInfo;
+        jerror *error = NULL;
+        jvalue_ref dom = jdom_create(j_cstr_to_buffer(LSMessageGetPayload(message)), entry->schema_call, &error);
+        j_release(&dom);
 
-        SetLSErrorCallbacks(&errorCallbacks, &error);
+        if (!error) /* no error - nothing to do */
+        {
+            return true;
+        }
 
-        jschema_info_init(&schemaInfo, entry->schema_call, NULL, &errorCallbacks);
+        char buffer[256];
+        jerror_to_string(error, buffer, sizeof(buffer));
 
-        jvalue_ref dom = jdom_parse(j_cstr_to_buffer(LSMessageGetPayload(message)), DOMOPT_NOOPT, &schemaInfo);
-
-        if (jis_valid(dom)) /* no error - nothing to do */
-        { return true; }
-
-        j_release(&dom); /* TODO: save in LSMessage for callback */
-
-        /* FIXME: we shouldn't return jinvaid() without providing any
-         *        justification
-         */
-        const char *error_message = error.message == NULL ? "error unset" : error.message;
         reply = jobject_create_var(
             jkeyval( J_CSTR_TO_JVAL("returnValue"), jboolean_create(false) ),
-            jkeyval( J_CSTR_TO_JVAL("errorText"), j_cstr_to_jval(error_message) ),
+            jkeyval( J_CSTR_TO_JVAL("errorText"), j_cstr_to_jval(buffer) ),
             J_END_OBJ_DECL
         );
 
-        payload = jis_valid(reply) ? jvalue_tostring(reply, jschema_all()) : NULL;
-        if (payload == NULL) payload = badReplyFallback;
+        jerror_free(error);
+    }
+    else
+    {
+        reply = jobject_create_var(
+            jkeyval( J_CSTR_TO_JVAL("returnValue"), jboolean_create(false) ),
+            jkeyval( J_CSTR_TO_JVAL("errorText"), j_cstr_to_jval("Service didn't provided schema, but expects validation") ),
+            J_END_OBJ_DECL
+        );
     }
 
+    const char* payload = jvalue_stringify(reply);
     LOG_LS_ERROR("INVALID_CALL", 4,
         PMLOGKS("SENDER", LSMessageGetSenderServiceName(message)),
         PMLOGKS("CATEGORY", LSMessageGetCategory(message)),
@@ -346,7 +342,8 @@ bool LSCategoryValidateCall(LSMethodEntry *entry, LSMessage *message)
         "Validation failed for request %s", LSMessageGetPayload(message)
     );
 
-    LSErrorFree(&error);
+    LSError error;
+    LSErrorInit(&error);
 
     if (!LSMessageRespond(message, payload, &error))
     {
@@ -359,21 +356,25 @@ bool LSCategoryValidateCall(LSMethodEntry *entry, LSMessage *message)
     return false;
 }
 
-/* @} END OF LunaServiceInternals */
+/**
+ * @} END OF LunaServiceInternals
+ * @endcond
+ */
 
 /**
-* @brief Append methods to the category.
-*        Creates a category if needed.
-*
-* @param  sh
-* @param  category
-* @param  methods
-* @param  signals
-* @param  category_user_data
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Append methods to the category.
+ *        Creates a category if needed.
+ *
+ * @param  sh       IN  handle to service
+ * @param  category IN  category name
+ * @param  methods  IN  array of methods
+ * @param  signals  IN  array of signals
+ * @param  lserror  OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSRegisterCategoryAppend(LSHandle *sh, const char *category,
                    LSMethod      *methods,
@@ -382,8 +383,6 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
 {
     LSHANDLE_VALIDATE(sh);
 
-    LSCategoryTable *table = NULL;
-
     if (!sh->tableHandlers)
     {
         sh->tableHandlers = g_hash_table_new_full(g_str_hash, g_str_equal,
@@ -391,32 +390,34 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
             /*value*/ (GDestroyNotify)_LSCategoryTableFree);
     }
 
-    char *category_path = _category_to_object_path_alloc(category);
+    const char *category_path = NULL;
+    LSCategoryTable *table = NULL;
+    char *category_path_query = _category_to_object_path_alloc(category);
 
-    table =  g_hash_table_lookup(sh->tableHandlers, category_path);
-    if (!table)
+    if (!g_hash_table_lookup_extended(sh->tableHandlers, category_path_query,
+                                      (gpointer *) &category_path, (gpointer *) &table))
     {
         table = g_new0(LSCategoryTable, 1);
 
         table->sh = sh;
         table->methods    = g_hash_table_new_full(g_str_hash, g_str_equal, free, LSMethodEntryFree);
-        table->signals    = g_hash_table_new(g_str_hash, g_str_equal);
+        table->signals    = g_hash_table_new_full(g_str_hash, g_str_equal, free, (GDestroyNotify)LSSignalFree);
         table->category_user_data = NULL;
         table->description = NULL;
 
-        g_hash_table_replace(sh->tableHandlers, category_path, table);
-
+        g_hash_table_replace(sh->tableHandlers, category_path_query, table);
+        category_path = category_path_query;
     }
     else
     {
         /*
          * We've already registered the category, so free the unneeded
-         * category_path. This will happen when we call
+         * category_path_query. This will happen when we call
          * LSRegisterCategoryAppend multiple times with the same category
          * (i.e., LSPalmServiceRegisterCategory)
          */
-        g_free(category_path);
-        category_path = NULL;
+        g_free(category_path_query);
+        category_path_query = NULL;
     }
 
     /* Add methods to table. */
@@ -444,6 +445,42 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
                 g_hash_table_insert(table->methods, strdup(m->name), entry);
             }
             LSMethodEntrySet(entry, m);
+
+            // fill method provided security groups bitmask
+            if (!entry->security_provided_groups)
+                entry->security_provided_groups = g_malloc0_n(LSTransportGetSecurityMaskSize(sh->transport),
+                                                              sizeof(LSTransportBitmaskWord));
+
+            GSList *list = LSTransportGetCategoryGroups(sh->transport);
+            if (list)
+            {
+                // prepare full methods name for pattern matching
+                char *full_name = g_build_path("/", category_path, m->name, NULL);
+
+                for (; list; list = g_slist_next(list))
+                {
+                    const LSTransportCategoryBitmask *category_bitmask = (const LSTransportCategoryBitmask *) list->data;
+
+                    if (g_pattern_match_string(category_bitmask->category_pattern,
+                                               category_bitmask->match_category_only ? category_path : full_name))
+                    {
+                        BitMaskBitwiseOr(entry->security_provided_groups,
+                                         category_bitmask->group_bitmask,
+                                         LSTransportGetSecurityMaskSize(sh->transport));
+                    }
+                }
+
+                g_free(full_name);
+            }
+#ifdef SECURITY_COMPATIBILITY
+            if (LSTransportIsOldClient(sh->transport))
+            {
+                BitMaskSetBit(entry->security_provided_groups,
+                              LSHandleIsOldPublicBus(sh)
+                                  ? SECURITY_PUBLIC_GROUP_BIT
+                                  : SECURITY_PRIVATE_GROUP_BIT);
+            }
+#endif
         }
     }
 
@@ -452,14 +489,14 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
         LSSignal *s;
         for (s = signals; s->name; s++)
         {
-            g_hash_table_replace(table->signals, (gpointer)s->name, s);
+            g_hash_table_replace(table->signals, strdup(s->name), LSSignalCopy(s));
         }
     }
 
     if (sh->name)
     {
         // Unlikely
-        if (!_LSTransportAppendCategory(sh->transport, category, methods, lserror))
+        if (!_LSTransportAppendCategory(sh->transport, sh->is_public_bus, category, methods, lserror))
         {
             LOG_LS_ERROR(MSGID_LS_CONN_ERROR, 0, "Failed to notify the hub about category append.");
             return false;
@@ -470,18 +507,21 @@ LSRegisterCategoryAppend(LSHandle *sh, const char *category,
 }
 
 /**
-* @brief Register public methods and private methods.
-*
-* @param  psh
-* @param  category
-* @param  methods_public
-* @param  methods_private
-* @param  signals
-* @param  category_user_data
-* @param  lserror
-*
-* @retval
-*/
+ ********************************************************************************
+ * @brief Register public methods and private methods.
+ *
+ * @param  psh                 IN  handle to public service
+ * @param  category            IN  category name
+ * @param  methods_public      IN  public methods to register
+ * @param  methods_private     IN  private methods to register
+ * @param  signals             IN  signals
+ * @param  category_user_data  IN  @see LSCategorySetData
+ * @param  lserror             OUT set on error
+ *
+ * @deprecated Avoid using LSPalmService, use LSHandle instead.
+ *
+ * @return true on success, otherwise false
+ ********************************************************************************/
 bool
 LSPalmServiceRegisterCategory(LSPalmService *psh,
     const char *category, LSMethod *methods_public, LSMethod *methods_private,
@@ -515,16 +555,21 @@ error:
 }
 
 /**
-* @brief Set the userdata that is delivered to each callback registered
-*        to the category.
-*
-* @param  sh
-* @param  category
-* @param  user_data
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Set the userdata that is delivered to each callback registered
+ *        to the category.
+ *
+ * @param  sh         IN  handle to service
+ * @param  category   IN  category name
+ * @param  user_data  IN  user data to set
+ * @param  lserror    OUT set on error
+ *
+ * @return true on success, otherwise false
+ *
+ * @note If method user data is set using @ref LSMethodSetData, it overrides
+ * category data
+ *******************************************************************************
+ */
 bool
 LSCategorySetData(LSHandle *sh, const char *category, void *user_data, LSError *lserror)
 {
@@ -633,16 +678,60 @@ bool LSCategorySetDescription(
 }
 
 /**
-* @brief Register tables of callbacks associated with the message category.
-*
-* @param  category    - May be NULL for default '/' category.
-* @param  methods     - table of methods.
-* @param  signals     - table of signals.
-* @param  properties  - table of properties.
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Set the userdata that is delivered to callback registered
+ *        to the method. Overrides category data as callback context.
+ *
+ * @param  sh         IN  handle to service
+ * @param  category   IN  category name
+ * @param  method     IN  method name
+ * @param  user_data  IN  user data to set
+ * @param  lserror    OUT set on error
+ *
+ * @return true on success, otherwise false
+ *
+ * @note It's recommended to set method user data before method registration,
+ *       otherwise, if mainloop is running, there is a chance to get callback
+ *       called with category data.
+ *******************************************************************************
+ */
+bool
+LSMethodSetData(LSHandle *sh, const char *category, const char *method,
+                void *user_data, LSError *lserror)
+{
+    LSHANDLE_VALIDATE(sh);
+
+    LSCategoryTable *table = LSHandleGetCategory(sh, category, lserror);
+    if (table == NULL) return false;
+
+    LSMethodEntry *entry = g_hash_table_lookup(table->methods, method);
+    if (entry == NULL)
+    {
+        /* create a stub entry for further filling with appropriate callback */
+        entry = LSMethodEntryCreate();
+
+        g_hash_table_insert(table->methods, strdup(method), entry);
+    }
+
+    entry->method_user_data = user_data;
+
+    return true;
+}
+
+/**
+ *******************************************************************************
+ * @brief Register tables of callbacks associated with the message category.
+ *
+ * @param sh          IN  handle to service
+ * @param category    IN  may be NULL for default '/' category.
+ * @param methods     IN  table of methods.
+ * @param signals     IN  table of signals.
+ * @param properties  IN  table of properties.
+ * @param lserror     OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSRegisterCategory(LSHandle *sh, const char *category,
                    LSMethod      *methods,

@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2008-2014 LG Electronics, Inc.
+# Copyright (c) 2008-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
 libdir=@WEBOS_INSTALL_LIBDIR@
 includedir=@WEBOS_INSTALL_INCLUDEDIR@
@@ -24,4 +22,4 @@ Description: @WEBOS_PROJECT_SUMMARY@
 Version: @WEBOS_COMPONENT_VERSION@
 Requires.private: glib-2.0 pbnjson_c >= 2.5.0 PmLogLib >= 3.0.2
 Libs: -L${libdir} -l@CMAKE_PROJECT_NAME@
-Cflags: -I${includedir}
+Cflags: -I${includedir} -DUSE_PMLOG_DECLARATION

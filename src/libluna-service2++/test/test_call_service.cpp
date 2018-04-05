@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include <glib.h>
 #include <stdio.h>
@@ -33,6 +31,7 @@
 #define SIMPLE_CALL_NAME     "simpleCall"
 #define TIMEOUT_CALL_NAME    "timeoutCall"
 #define SUBSCRIBE_CALL_NAME  "subscribeCall"
+#define ECHO_APPID_CALL_NAME "echoAppIdCall"
 
 
 static GMainLoop *g_mainloop = NULL;
@@ -101,6 +100,26 @@ static void errorReply(LSHandle* lsh, LSMessage* message, const std::string & me
         answerStr += "\"";
     }
     answerStr += "}";
+
+    LSError lserror;
+    LSErrorInit(&lserror);
+    if (!LSMessageReply(lsh, message, answerStr.c_str(), &lserror))
+    {
+        LSErrorPrint(&lserror, stderr);
+    }
+
+    if (LSErrorIsSet(&lserror))
+    {
+        LSErrorFree(&lserror);
+    }
+}
+
+static void appIdReply(LSHandle* lsh, LSMessage* message, const char *appId)
+{
+    std::string answerStr = "{\"returnValue\": true";
+    answerStr += ", \"appId\":\"";
+    answerStr += ((appId) ? appId : "");
+    answerStr += "\"}";
 
     LSError lserror;
     LSErrorInit(&lserror);
@@ -264,13 +283,18 @@ static void subscribeReply(LSHandle* lsh, LSMessage* message)
     return makeSubscription(lsh, message);
 }
 
+static void echoAppIdReply(LSHandle* lsh, LSMessage* message)
+{
+    return appIdReply(lsh, message, LSMessageGetApplicationID(message));
+}
+
 // Simple call - just reply
 // Accept - doesn't care
 // Input {}
 // Return returnValue and current timestamp
 // Output {"returnValue": true, "timestamp": "Apr 01 2014 17:54:11"}
 // URI - com.palm.testservice/testCalls/simpleCall
-// Example - luna-send -n 1 -f palm://com.palm.testservice/testCalls/simpleCall '{}'
+// Example - luna-send -n 1 -f luna://com.palm.testservice/testCalls/simpleCall '{}'
 static bool testSimpleCall( LSHandle* sh, LSMessage* message, void* user_data )
 {
     justReply(sh, message, SIMPLE_CALL_NAME);
@@ -283,7 +307,7 @@ static bool testSimpleCall( LSHandle* sh, LSMessage* message, void* user_data )
 // Return returnValue and current timestamp
 // Output {"returnValue": true, "timestamp": "Apr 01 2014 17:54:11"}
 // URI - com.palm.testservice/testCalls/timeoutCall
-// Example - luna-send -n 1 -f palm://com.palm.testservice/testCalls/timeoutCall '{"timeout": 100}'
+// Example - luna-send -n 1 -f luna://com.palm.testservice/testCalls/timeoutCall '{"timeout": 100}'
 static bool testTimeoutCall( LSHandle* sh, LSMessage* message, void* user_data )
 {
   timeoutReply(sh, message);
@@ -296,10 +320,23 @@ static bool testTimeoutCall( LSHandle* sh, LSMessage* message, void* user_data )
 // Return returnValue and current timestamp
 // Output {"returnValue": true, "timestamp": "Apr 01 2014 17:54:11"}
 // URI - com.palm.testservice/testCalls/subscribeCall
-// Example - luna-send -n 2 -f palm://com.palm.testservice/testCalls/subscribeCall '{"subscribe": true, "timeout": 100}'
+// Example - luna-send -n 2 -f luna://com.palm.testservice/testCalls/subscribeCall '{"subscribe": true, "timeout": 100}'
 static bool testSubscribeCall( LSHandle* sh, LSMessage* message, void* user_data )
 {
   subscribeReply(sh, message);
+  return true;
+}
+
+// Echo application Id call - echos received application Id
+// Accept - empty JSON
+// Input {}
+// Return returnValue and application Id associated with message
+// Output {"returnValue": true, "appId": "com.palm.app.foo"}
+// URI - com.palm.testservice/testCalls/echoAppIdCall
+// Example - luna-send -n 1 -f luna://com.palm.testservice/testCalls/echoAppIdCall '{}'
+static bool testEchoAppIdCall( LSHandle* sh, LSMessage* message, void* user_data )
+{
+  echoAppIdReply(sh, message);
   return true;
 }
 
@@ -308,6 +345,7 @@ static LSMethod testMethods[] =
     { SIMPLE_CALL_NAME, testSimpleCall },
     { TIMEOUT_CALL_NAME, testTimeoutCall },
     { SUBSCRIBE_CALL_NAME, testSubscribeCall },
+    { ECHO_APPID_CALL_NAME, testEchoAppIdCall },
     { },
 };
 
@@ -327,38 +365,29 @@ int main(int argc, char **argv)
     (void)sigaction(SIGTERM, &sact, NULL);
 
     LSPalmService* psh;
-    bool retVal;
 
-    retVal = LSRegisterPalmService("com.palm.test_call_service", &psh, &lserror);
-    if (!retVal)
-        goto error;
+    if (LSRegisterPalmService("com.palm.test_call_service", &psh, &lserror) &&
+        LSPalmServiceRegisterCategory(psh, "/testCalls",
+                                      testMethods, NULL,
+                                      NULL,
+                                      psh,
+                                      &lserror))
+    {
+        LSSubscriptionSetCancelFunction(LSPalmServiceGetPrivateConnection(psh), subscribeCancelHandler, NULL, &lserror);
+        LSSubscriptionSetCancelFunction(LSPalmServiceGetPublicConnection(psh), subscribeCancelHandler, NULL, &lserror);
 
-    retVal = LSPalmServiceRegisterCategory(psh, "/testCalls",
-                                           testMethods, NULL,
-                                           NULL,
-                                           psh,
-                                           &lserror);
-    if (!retVal)
-        goto error;
+        LSGmainAttachPalmService(psh, g_mainloop, &lserror);
 
-    LSSubscriptionSetCancelFunction(LSPalmServiceGetPrivateConnection(psh), subscribeCancelHandler, NULL, &lserror);
-    LSSubscriptionSetCancelFunction(LSPalmServiceGetPublicConnection(psh), subscribeCancelHandler, NULL, &lserror);
+        g_main_loop_run(g_mainloop);
 
-    retVal = LSGmainAttachPalmService(psh, g_mainloop, &lserror);
+        cancelSubscription();
 
-    g_main_loop_run(g_mainloop);
-
-    cancelSubscription();
-
-    g_main_loop_unref(g_mainloop);
-
-    goto no_error;
-
- error:
-
-     LSErrorPrint(&lserror, stderr);
-
- no_error:
+        g_main_loop_unref(g_mainloop);
+    }
+    else
+    {
+        LSErrorPrint(&lserror, stderr);
+    }
 
     (void)LSUnregisterPalmService(psh, &lserror);
 

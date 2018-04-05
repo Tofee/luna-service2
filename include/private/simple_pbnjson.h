@@ -1,22 +1,18 @@
-/****************************************************************
- * @@@LICENSE
- *
- * Copyright (c) 2014 LG Electronics, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * LICENSE@@@
- ****************************************************************/
+// Copyright (c) 2014-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 /**
  *  @file simple_pbnjson.h
@@ -30,6 +26,12 @@
 #include <pbnjson.h>
 
 #include "luna-service2/lunaservice.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** @cond INTERNAL */
 
 /**
  * Handy macro to define local C-string from raw_buffer
@@ -66,10 +68,10 @@ jstr_eq_cstr(jvalue_ref jstr, const char *cstr)
  */
 jvalue_ref jvalue_shallow(jvalue_ref value);
 
-/*
- * Setup JErrorCallbacks to fillup LSError on any error event
- */
-void
-SetLSErrorCallbacks(struct JErrorCallbacks *callbacks, LSError *lserror);
+#ifdef __cplusplus
+}
+#endif
+
+/** @endcond */
 
 #endif

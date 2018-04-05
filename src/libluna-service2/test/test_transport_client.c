@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <glib.h>
@@ -29,10 +27,8 @@ static const char mvar_service_name[] = "stest_test";
 static const char mvar_unique_name[] = "utest_test";
 static _LSTransportOutgoing* mvar_outqueue = (_LSTransportOutgoing*)0x2345;
 static _LSTransportIncoming* mvar_inqueue = (_LSTransportIncoming*)0x8484;
-static bool mvar_initiator = true;
 static const int mvar_source_priority = 4;
 static _LSTransportCred* mvar_transport_cred_ptr = (_LSTransportCred*)0x9494;
-static _LSTransportType mvar_transport_type = _LSTransportTypeLocal;
 static bool mvar_getcredentials_succeeds = true;
 static bool mvar_outqueue_creation_succeeds = true;
 static bool mvar_inqueue_creation_succeeds = true;
@@ -57,17 +53,13 @@ test_LSTransportClientNewFree(void)
                                     mvar_fd,
                                     mvar_service_name,
                                     mvar_unique_name,
-                                    mvar_outqueue,
-                                    mvar_initiator);
+                                    mvar_outqueue);
     /* case: verify client creation. */
     g_assert_cmpint(client->ref, ==, 1);
     g_assert_cmpstr(client->unique_name, ==, mvar_unique_name);
     g_assert_cmpstr(client->service_name, ==, mvar_service_name);
     g_assert_cmpint(client->state, ==, _LSTransportClientStateInvalid);
     g_assert_cmphex(GPOINTER_TO_INT(client->transport),
-                     ==,
-                     GPOINTER_TO_INT(&mvar_transport));
-    g_assert_cmphex(GPOINTER_TO_INT(client->channel.transport),
                      ==,
                      GPOINTER_TO_INT(&mvar_transport));
     g_assert_cmpint(client->channel.fd, ==, mvar_fd);
@@ -81,9 +73,7 @@ test_LSTransportClientNewFree(void)
     g_assert_cmphex(GPOINTER_TO_INT(client->incoming),
                      ==,
                      GPOINTER_TO_INT(mvar_inqueue));
-    g_assert(client->is_sysmgr_app_proxy == false);
     g_assert(client->is_dynamic == false);
-    g_assert_cmpint(client->initiator, ==, mvar_initiator);
 
     /* Test reference count handling. */
 
@@ -147,8 +137,7 @@ test_LSTransportClientNewFreeErrorHandling(void)
         mvar_fd,
         mvar_service_name,
         mvar_unique_name,
-        mvar_outqueue,
-        mvar_initiator);
+        mvar_outqueue);
     g_assert_cmpint(mvar_errorprint_count, ==, 1);
     _LSTransportClientFree(client);
     /* case: outqueu creation fails. */
@@ -160,8 +149,7 @@ test_LSTransportClientNewFreeErrorHandling(void)
         mvar_fd,
         mvar_service_name,
         mvar_unique_name,
-        NULL,
-        mvar_initiator);
+        NULL);
     g_assert_cmphex(GPOINTER_TO_INT(client),
                      ==,
                      0);
@@ -177,8 +165,7 @@ test_LSTransportClientNewFreeErrorHandling(void)
         mvar_fd,
         mvar_service_name,
         mvar_unique_name,
-        mvar_outqueue,
-        mvar_initiator);
+        mvar_outqueue);
     g_assert_cmphex(GPOINTER_TO_INT(client),
                      ==,
                      0);
@@ -189,12 +176,10 @@ test_LSTransportClientNewFreeErrorHandling(void)
 /* Mocks **********************************************************************/
 
 bool
-_LSTransportChannelInit(_LSTransport *transport,
-                        _LSTransportChannel *channel,
+_LSTransportChannelInit(_LSTransportChannel *channel,
                         int fd,
                         int priority)
 {
-    channel->transport = transport;
     channel->fd = fd;
     channel->priority = priority;
     return true;
@@ -204,12 +189,6 @@ _LSTransportCred *
 _LSTransportCredNew(void)
 {
     return mvar_transport_cred_ptr;
-}
-
-_LSTransportType
-_LSTransportGetTransportType(const _LSTransport *transport)
-{
-    return mvar_transport_type;
 }
 
 bool

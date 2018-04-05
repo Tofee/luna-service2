@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include <stdlib.h>
 #include <glib.h>
@@ -135,7 +133,7 @@ DisconnectHandler(_LSTransportClient *client, _LSTransportDisconnectType type, v
     calls_to_disconnect++;
 }
 void
-FailureHandler(LSMessageToken global_token, _LSTransportMessageFailureType failure_type, void *context)
+FailureHandler(_LSTransportMessage *message, _LSTransportMessageFailureType failure_type, void *context)
 {
 }
 
@@ -144,6 +142,9 @@ _LSTransportClientGetTransport(const _LSTransportClient *client)
 {
     return this_transport;
 }
+
+static gboolean log_message_is_fatal = TRUE;
+static gboolean log_message_caught = FALSE;
 
 // PmLogLib.h
 PmLogErr _PmLogMsgKV(PmLogContext context, PmLogLevel level, unsigned int flags,
@@ -161,7 +162,8 @@ PmLogErr _PmLogMsgKV(PmLogContext context, PmLogLevel level, unsigned int flags,
     putc('\n', stderr);
 
     // Added to simulate glib error behaviour
-    g_assert(false);
+    g_assert(!log_message_is_fatal);
+    log_message_caught = TRUE;
 
     return kPmLogErr_None;
 }
@@ -227,7 +229,7 @@ _LSTransportClientUnref(_LSTransportClient *client)
 }
 
 bool
-_LSTransportShmInit(_LSTransportShm** shm, bool public_bus, LSError* lserror)
+_LSTransportShmInit(_LSTransportShm** shm, LSError* lserror)
 {
     calls_to_shminit++;
     return use_shared_memory;
@@ -450,7 +452,7 @@ test_LSTransportLifespan_execute(const char *service_name, int number_of_connect
     flush_and_shutdown = flush_and_send_shutdown;
     use_shared_memory = use_shm;
     headertype = _LSTransportMessageTypeMethodCall;
-    expected_calls_to_messagesettype = number_of_clients + number_of_connections + (flush_and_send_shutdown ? 1 : 0); /*+1 for hub*/
+    expected_calls_to_messagesettype = number_of_clients + number_of_connections + (flush_and_send_shutdown ? 1 : 0) * 2; /*+1 for hub*/
     _LSTransportMessageType typelist[expected_calls_to_messagesettype];
     int cli;
     for(cli=0; cli < expected_calls_to_messagesettype; cli++)
@@ -459,7 +461,7 @@ test_LSTransportLifespan_execute(const char *service_name, int number_of_connect
     }
     expected_message_types = typelist;
 
-    int expected_calls_to_connectclient = use_shm ? 3 : 0; /* x3 = localhost, public hub and internet */
+    int expected_calls_to_connectclient = use_shm ? 1 : 0; /* localhost */
     int expected_shm_deinit_count = use_shm ? 1 : 0;
     /*gboolean is_this_hub = (g_strcmp0(service_name, HUB_NAME) == 0);*/
     gboolean expected_connect_success = false; //TODO find a failure case
@@ -478,7 +480,7 @@ test_LSTransportLifespan_execute(const char *service_name, int number_of_connect
 
     /* Test: Check init (init was done in construction phase. */
     /****************************************************/
-    gboolean construct_success = _LSTransportInit(&this_transport, service_name, &handlers, &error);
+    gboolean construct_success = _LSTransportInit(&this_transport, service_name, NULL, &handlers, &error);
 
     g_assert(construct_success);
     g_assert(this_transport != NULL);
@@ -536,7 +538,7 @@ test_LSTransportLifespan_execute(const char *service_name, int number_of_connect
 
     /* Test: Check connect - More comprehensive testing for connect is done separately */
     /*****************************************************************************/
-    gboolean connect_success = _LSTransportConnect(this_transport, true, true, &error);
+    gboolean connect_success = _LSTransportConnect(this_transport, &error);
 
     g_assert(connect_success == expected_connect_success);
     g_assert(!LSErrorIsSet(&error));
@@ -620,7 +622,8 @@ test_LSTransportSend_execute(const char *service_name, const char *category, con
     LSErrorInit(&error);
 
     /* Test: Call LSTransportSend and see what happens. */
-    gboolean function_success = LSTransportSend(transport, service_name, category, method, payload, applicationId, &token, &error);
+    bool is_public_bus = false; // the value does not matter
+    gboolean function_success = LSTransportSend(transport, service_name, is_public_bus, category, method, payload, applicationId, &token, &error);
     g_assert(function_success == expected_success);
 
     /* Cleanup. */
@@ -684,7 +687,7 @@ test_LSTransportPushRole_execute(const char *path, gboolean expeced_success)
     LSError error;
     LSErrorInit(&error);
     /* Test: Run PushRole */
-    gboolean success = LSTransportPushRole(transport, path, &error);
+    gboolean success = LSTransportPushRole(transport, path, false, &error);
     g_assert_cmpint(success, ==, expeced_success);
 
     /* Cleanup. */
@@ -798,13 +801,12 @@ test_LSTransportCancelMethodCall_execute(char *service_name, int number_of_clien
        the message is sent.
        Message also ref+1 in LSTransportSerialSave() (LSTransportSerialListItemNew()). Unref(message) in LSTransportSerialListItemFree().
        -> In this test message unref count == ref count +2 */
-    gboolean success = LSTransportCancelMethodCall(transport, service_name, serial, &error);
+    gboolean success = LSTransportCancelMethodCall(transport, service_name, serial, false, &error);
 
     int expected_message_unrefs = calls_to_messagenewref + calls_to_messageref;
-    expected_message_unrefs--; /* sending message */
-    if(!g_str_has_prefix(service_name, "key")) /*also number_of_clients==0*/
+    if(g_str_has_prefix(service_name, "key"))
     {
-        expected_message_unrefs--; /* LsTransportSerialSave */
+        expected_message_unrefs--; /* sending message */
     }
 
     g_assert_cmpint(success, ==, expected_success);
@@ -878,7 +880,7 @@ test_LSTransportSendQueryServiceStatus_execute(char *service_name)
     /************/
     /* Message stays at ref==unref+1 because it is pushed in queue and _LSTransportMessageUnref is called when
        the message is sent. */
-    LSTransportSendQueryServiceStatus(transport, service_name, &serial, &error);
+    LSTransportSendQueryServiceStatus(transport, service_name, false, &serial, &error);
     g_assert_cmpint(calls_to_messageunref, ==, calls_to_messagenewref + calls_to_messageref - 1);
     g_assert_cmpint(calls_to_messagesettype, ==, 1);
 
@@ -919,16 +921,16 @@ test_LSTransportSendClient_execute(int number_of_messages, int include_null, int
     client->outgoing->queue = g_queue_new();
 
     int i;
-    for(i=0; i<number_of_messages; i++)
+    for (i=0; i<number_of_messages; i++)
     {
         _LSTransportMessage* message = NULL;
 
-        if(include_null != i)
+        if (include_null != i)
         {
             message = _LSTransportMessageNewRef(20);
             message->tx_bytes_remaining = remaining_bytes;
 
-            if(include_wrong_type != i)
+            if (include_wrong_type != i)
             {
                 message->raw->header.type = _LSTransportMessageTypeQueryNameReply;
             }
@@ -937,34 +939,28 @@ test_LSTransportSendClient_execute(int number_of_messages, int include_null, int
         g_queue_push_tail(client->outgoing->queue, message);
     }
 
+    log_message_is_fatal = FALSE;
+    log_message_caught = FALSE;
+
     /* Test it. */
     /* The first two argument aren't even used in the function! */
     /* return_value is TRUE if there's still data to be sent */
     /* In some cases we expect failure (g_warning or g_critical causes assert etc).
        Some branches aren't reachable when warnings or criticals are fatal. */
-    if (g_test_trap_fork(1000000, G_TEST_TRAP_SILENCE_STDOUT | G_TEST_TRAP_SILENCE_STDERR))
-    {
-        gboolean return_value = _LSTransportSendClient(NULL, 0, client);
+    gboolean return_value = _LSTransportSendClient(NULL, 0, client);
 
+    if (!log_message_caught)
+    {
         g_assert(!return_value);
         int expected_message_unrefs = calls_to_messagenewref + calls_to_messageref;
-        if(include_wrong_type >= 0)
+        if (include_wrong_type >= 0)
         {
             expected_message_unrefs--;
         }
         g_assert_cmpint(calls_to_messageunref, ==, expected_message_unrefs);
-
-        exit(0);
     }
 
-    if(include_null < 0 && sendfd_success)
-    {
-        g_test_trap_assert_passed();
-    }
-    else
-    {
-        g_test_trap_assert_failed();
-    }
+    g_assert(log_message_caught == !(include_null < 0 && sendfd_success));
 
     /* Cleanup. */
     while (!g_queue_is_empty(client->outgoing->queue))

@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
+#define private public
 #include <pbnjson.hpp>
+#undef private
 
 #include "luna-service2/lunaservice.hpp"
 #include "luna-service2/lunaservice-meta.h"
 
 #include <gtest/gtest.h>
-#include "util.hpp"
+#include "test_util.hpp"
 
 using namespace std;
 using pbnjson::JValue;
@@ -90,6 +90,13 @@ protected:
     { sh.setCategoryData(std::forward<Args>(args)...); }
 
 public:
+    void reg()
+    {
+        LS_CATEGORY_BEGIN("/")
+            LS_CATEGORY_METHOD(cbPing)
+        LS_CATEGORY_END
+    }
+
     bool cbPing(LSMessage &message) { return ping(&message); }
     bool cbPong(LSMessage &message) { return pong(&message); }
 };
@@ -107,7 +114,8 @@ TEST_F(TestCategory, UnregisteredSet)
 
 TEST_F(TestCategory, SetDescription)
 {
-    JRef description {
+    auto description = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -120,11 +128,12 @@ TEST_F(TestCategory, SetDescription)
     };
 
     ASSERT_NO_THROW({ sh.registerCategory("/", nullptr, nullptr, nullptr); });
-    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.get()); });
+    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.m_jval); });
 
     // Actually we should to check that effect of prev setting disappeared
     // without any leaks. But at least we'll test that it doesn't fall.
-    JRef description2 {
+    auto description2 = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -142,12 +151,13 @@ TEST_F(TestCategory, SetDescription)
             }},
         }},
     };
-    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description2.get()); });
+    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description2.m_jval); });
 }
 
 TEST_F(TestCategory, ValidationWithRef)
 {
-    JRef description {
+    auto description = JValue
+    {
         { "definitions", {
             { "foo", {
                 { "type", "object" },
@@ -159,7 +169,6 @@ TEST_F(TestCategory, ValidationWithRef)
             { "ping", {
                 { "call", {
                     { "$ref", "#/definitions/foo" }
-                    // { "oneOf", JRef::array({ { { "$ref", "#/definitions/foo" } } })},
                 }},
             }},
         }},
@@ -172,7 +181,7 @@ TEST_F(TestCategory, ValidationWithRef)
 
     ASSERT_NO_THROW({ sh.registerCategory("/", methods, nullptr, nullptr); });
     ASSERT_NO_THROW({ sh.setCategoryData("/", this); });
-    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.get()); });
+    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.m_jval); });
 
     bool havePing = false;
     ping = [&](LSMessage *m) {
@@ -185,7 +194,7 @@ TEST_F(TestCategory, ValidationWithRef)
 
     LS::Call call;
     LS::Message reply;
-    JRef response;
+    JValue response;
 
     {
         SCOPED_TRACE("test against wrong param");
@@ -196,8 +205,8 @@ TEST_F(TestCategory, ValidationWithRef)
 
         if (reply)
         {
-            response = fromJson(reply.getPayload());
-            EXPECT_EQ(JRef(false), response["returnValue"])
+            response = pbnjson::JDomParser::fromString(reply.getPayload());
+            EXPECT_EQ(JValue(false), response["returnValue"])
                 << "Actual response: " << ::testing::PrintToString(response);
         }
     }
@@ -206,14 +215,15 @@ TEST_F(TestCategory, ValidationWithRef)
         SCOPED_TRACE("test against correct param");
         ASSERT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/ping", "{}"); });
         reply = {};
-        ASSERT_NO_THROW({ reply = call.get(100); });
+        ASSERT_NO_THROW({ reply = call.get(1000); });
         EXPECT_TRUE(bool(reply));
         EXPECT_TRUE(havePing);
 
         if (reply)
         {
-            response = fromJson(reply.getPayload());
-            JRef expected_answer {
+            response = pbnjson::JDomParser::fromString(reply.getPayload());
+            auto expected_answer = JValue
+            {
                 { "returnValue", true },
                 { "answer", 42 },
             };
@@ -222,14 +232,54 @@ TEST_F(TestCategory, ValidationWithRef)
     }
 }
 
+TEST_F(TestCategory, TestUserData)
+{
+    const char *category_context  = "CATEGORY_CONTEXT";
+    const char *method_context  = "METHOD_CONTEXT";
+
+    auto cb = [](LSHandle *sh, LSMessage *m, void *ctxt)
+    {
+        EXPECT_STREQ((const char *)ctxt, "CATEGORY_CONTEXT");
+
+        LS::Error e;
+        EXPECT_TRUE(LSMessageRespond(m, "{\"returnValue\":true, \"answer\":42}", e.get())) << e.what();
+        return true;
+    };
+
+    auto mcb = [](LSHandle *sh, LSMessage *m, void *ctxt)
+    {
+        EXPECT_STREQ((const char *)ctxt, "METHOD_CONTEXT");
+
+        LS::Error e;
+        EXPECT_TRUE(LSMessageRespond(m, "{\"returnValue\":true, \"answer\":42}", e.get())) << e.what();
+        return true;
+    };
+
+    LSMethod methods[] = {
+        { "ping_1", cb },
+        { "ping_2", cb },
+        { "ping_3", mcb },
+        { nullptr, nullptr },
+    };
+
+    ASSERT_NO_THROW({ sh.registerCategory("/", methods, nullptr, nullptr); });
+    ASSERT_NO_THROW({ sh.setCategoryData("/", (void *)category_context); });
+    ASSERT_NO_THROW({ sh.setMethodData("/", "ping_3", (void *)method_context); });
+
+    LS::Error e;
+
+    auto call = sh_client.callOneReply("luna://com.palm.test/ping_1", "'{}'");
+    call.get();
+
+    call = sh_client.callOneReply("luna://com.palm.test/ping_2", "'{}'");
+    call.get();
+
+    call = sh_client.callOneReply("luna://com.palm.test/ping_3", "'{}'");
+    call.get();
+}
+
 TEST_F(TestCategory, RegisterByMacro)
 {
-    // by some reason can't put it directly into ASSERT_NO_THROW
-    auto reg = [&]() {
-        LS_CATEGORY_BEGIN(TestCategory, "/")
-            LS_CATEGORY_METHOD(cbPing)
-        LS_CATEGORY_END
-    };
     ASSERT_NO_THROW({ reg(); });
 
     bool havePing = false, havePong = false;
@@ -242,7 +292,7 @@ TEST_F(TestCategory, RegisterByMacro)
     pong = [&](LSMessage *m) {
         finish();
         havePong = true;
-        auto response = fromJson(LSMessageGetPayload(m));
+        auto response = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
         EXPECT_EQ(JValue(true), response["returnValue"]);
         return true;
     };
@@ -271,9 +321,9 @@ TEST_F(TestCategory, BasicScenario)
     pong = [&](LSMessage *m) {
         finish();
         havePong = true;
-        auto response = fromJson(LSMessageGetPayload(m));
+        auto response = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
         EXPECT_EQ(JValue(false), response["returnValue"]);
-        EXPECT_EQ(JValue("Unknown method \"ping\" for category \"/\""), response["errorText"]) << toJson(response);
+        EXPECT_EQ(JValue("Unknown method \"ping\" for category \"/\""), response["errorText"]) << response.stringify();
         return true;
     };
 
@@ -307,7 +357,7 @@ TEST_F(TestCategory, BasicScenario)
     pong = [&](LSMessage *m) {
         finish();
         havePong = true;
-        auto response = fromJson(LSMessageGetPayload(m));
+        auto response = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
         EXPECT_EQ(JValue(true), response["returnValue"]);
         EXPECT_EQ(JValue(42), response["answer"]);
         return true;
@@ -338,11 +388,12 @@ TEST_F(TestCategory, IntrospectionFlat)
     LS::Call call;
     LS::Message reply;
     ASSERT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", "{}"); });
-    ASSERT_NO_THROW({ reply = call.get(100); });
+    ASSERT_NO_THROW({ reply = call.get(1000); });
 
     ASSERT_TRUE(bool(reply));
-    auto response = fromJson(reply.getPayload());
-    JRef simple_introspection {
+    auto response = pbnjson::JDomParser::fromString(reply.getPayload());
+    auto simple_introspection = JValue
+    {
         { "/", {
             { "ping", "METHOD"},
         }},
@@ -359,7 +410,8 @@ TEST_F(TestCategory, IntrospectionDescription)
 
     ASSERT_NO_THROW({ sh.registerCategory("/", methods, nullptr, nullptr); });
 
-    JRef description {
+    auto description = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -370,20 +422,26 @@ TEST_F(TestCategory, IntrospectionDescription)
             }},
         }},
     };
+    auto expected = description.duplicate();
 
-    ASSERT_NO_THROW({ sh.setCategoryDescription("/", description.get()); });
+    ASSERT_NO_THROW({ sh.setCategoryDescription("/", description.m_jval); });
 
     LS::Call call;
     LS::Message reply;
     ASSERT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", R""({"type": "description"})""); });
-    ASSERT_NO_THROW({ reply = call.get(100); });
+    ASSERT_NO_THROW({ reply = call.get(1000); });
 
     ASSERT_TRUE(bool(reply));
-    auto response = fromJson(reply.getPayload());
-    JRef descr_introspection {
+    EXPECT_EQ(description, expected);
+
+    expected["methods"]["ping"].put("provides", pbnjson::JArray{ "private" });
+
+    auto response = pbnjson::JDomParser::fromString(reply.getPayload());
+    auto descr_introspection = JValue
+    {
         { "returnValue", true },
         { "categories", {
-            { "/", description },
+            { "/", expected },
         }},
     };
     EXPECT_EQ(descr_introspection, response);
@@ -399,7 +457,8 @@ TEST_F(TestCategory, IntrospectionEffectiveMethods)
 
     ASSERT_NO_THROW({ sh.registerCategory("/", methods, nullptr, nullptr); });
 
-    JRef description {
+    auto description = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -417,27 +476,34 @@ TEST_F(TestCategory, IntrospectionEffectiveMethods)
             }},
         }},
     };
+    auto expected = description.duplicate();
 
-    ASSERT_NO_THROW({ sh.setCategoryDescription("/", description.get()); });
+    ASSERT_NO_THROW({ sh.setCategoryDescription("/", description.m_jval); });
 
     LS::Call call;
     LS::Message reply;
-    JRef response;
+    JValue response;
 
     EXPECT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", R""({"type": "description"})""); });
-    EXPECT_NO_THROW({ reply = call.get(100); });
+    EXPECT_NO_THROW({ reply = call.get(1000); });
 
     EXPECT_TRUE(bool(reply));
+    EXPECT_EQ(description, expected);
+
+    expected["methods"]["ping"].put("provides", pbnjson::JArray{ "private" });
+    expected["methods"]["pong"].put("provides", pbnjson::JArray{ "private" });
+
     if (reply)
     {
-        response = fromJson(reply.getPayload());;
-        JRef answer_from_mixed_descr {
+        response = pbnjson::JDomParser::fromString(reply.getPayload());;
+        auto answer_from_mixed_descr = JValue
+        {
             { "returnValue", true },
             { "categories", {
                 { "/", {
                     { "methods", {
-                        { "ping", description["methods"]["ping"] },
-                        { "ping2", {{}} },
+                        { "ping", expected["methods"]["ping"] },
+                        { "ping2", { { "provides", pbnjson::JArray{ "private" } } } },
                     }},
                 } },
             }},
@@ -454,20 +520,21 @@ TEST_F(TestCategory, IntrospectionEffectiveMethods)
 
     EXPECT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", R""({"type": "description"})""); });
     reply = {};
-    EXPECT_NO_THROW({ reply = call.get(100); });
+    EXPECT_NO_THROW({ reply = call.get(1000); });
 
     EXPECT_TRUE(bool(reply));
     if (reply)
     {
-        response = fromJson(reply.getPayload());;
-        JRef answer_from_mixed_descr {
+        response = pbnjson::JDomParser::fromString(reply.getPayload());;
+        auto answer_from_mixed_descr = JValue
+        {
             { "returnValue", true },
             { "categories", {
                 { "/", {
                     { "methods", {
-                        { "ping", description["methods"]["ping"] },
-                        { "pong", description["methods"]["pong"] },
-                        { "ping2", {{}} },
+                        { "ping", expected["methods"]["ping"] },
+                        { "pong", expected["methods"]["pong"] },
+                        { "ping2", { { "provides", pbnjson::JArray{ "private" } } } },
                     }},
                 } },
             }},
@@ -487,23 +554,24 @@ TEST_F(TestCategory, IntrospectionBad)
 
     LS::Call call;
     LS::Message reply;
-    JRef response;
+    JValue response;
 
     SCOPED_TRACE("introspection while no description");
 
     EXPECT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", R""({"type": "description"})""); });
-    EXPECT_NO_THROW({ reply = call.get(100); });
+    EXPECT_NO_THROW({ reply = call.get(1000); });
 
     EXPECT_TRUE(bool(reply));
     if (reply)
     {
-        response = fromJson(reply.getPayload());
-        JRef answer_for_no_description {
+        response = pbnjson::JDomParser::fromString(reply.getPayload());
+        auto answer_for_no_description = JValue
+        {
             { "returnValue", true },
             { "categories", {
                 { "/", {
                     { "methods", {
-                        { "ping", {{}} },
+                        { "ping", { { "provides", pbnjson::JArray{ "private" } } } },
                     }},
                 } },
             }},
@@ -511,7 +579,8 @@ TEST_F(TestCategory, IntrospectionBad)
         EXPECT_EQ(answer_for_no_description, response);
     }
 
-    JRef description {
+    auto description = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -523,18 +592,18 @@ TEST_F(TestCategory, IntrospectionBad)
         }},
     };
 
-    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.get()); });
+    EXPECT_NO_THROW({ sh.setCategoryDescription("/", description.m_jval); });
 
     SCOPED_TRACE("introspection with a wrong type in params");
     EXPECT_NO_THROW({ call = sh.callOneReply("luna://com.palm.test/com/palm/luna/private/introspection", R""({"type": "wrong"})""); });
     reply = {};
-    EXPECT_NO_THROW({ reply = call.get(100); });
+    EXPECT_NO_THROW({ reply = call.get(1000); });
 
     EXPECT_TRUE(bool(reply));
     if (reply)
     {
-        response = fromJson(reply.getPayload());
-        EXPECT_EQ(JRef(false), response["returnValue"])
+        response = pbnjson::JDomParser::fromString(reply.getPayload());
+        EXPECT_EQ(JValue(false), response["returnValue"])
             << "Expected schema failure but got response: " << ::testing::PrintToString(response);
     }
 }
@@ -552,7 +621,8 @@ TEST_F(TestCategory, Validation)
     ASSERT_NO_THROW({ sh.registerCategory("/", methods, nullptr, nullptr); });
     ASSERT_NO_THROW({ sh.setCategoryData("/", this); });
 
-    JRef description {
+    auto description = JValue
+    {
         { "methods", {
             { "ping", {
                 { "call", {
@@ -564,13 +634,13 @@ TEST_F(TestCategory, Validation)
         }},
     };
 
-    ASSERT_NO_THROW({ sh.setCategoryDescription( "/", description.get()); });
+    ASSERT_NO_THROW({ sh.setCategoryDescription( "/", description.m_jval); });
 
     bool havePong = false, havePing = false;
     ping = [&](LSMessage *m) {
         finish();
         havePing = true;
-        auto params = fromJson(LSMessageGetPayload(m));
+        auto params = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
         EXPECT_TRUE( params.isObject() );
         LS::Error e;
         EXPECT_TRUE(LSMessageRespond(m, "{\"returnValue\":true, \"answer\":42}", e.get())) << e.what();
@@ -579,8 +649,8 @@ TEST_F(TestCategory, Validation)
     pong = [&](LSMessage *m) {
         finish();
         havePong = true;
-        auto response = fromJson(LSMessageGetPayload(m));
-        EXPECT_EQ(JRef(false), response["returnValue"]);
+        auto response = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
+        EXPECT_EQ(JValue(false), response["returnValue"]);
         return true;
     };
     EXPECT_TRUE(
@@ -601,9 +671,9 @@ TEST_F(TestCategory, Validation)
     pong = [&](LSMessage *m) {
         finish();
         havePong = true;
-        auto response = fromJson(LSMessageGetPayload(m));
-        EXPECT_EQ(JRef(true), response["returnValue"]);
-        EXPECT_EQ(JRef(42), response["answer"]);
+        auto response = pbnjson::JDomParser::fromString(LSMessageGetPayload(m));
+        EXPECT_EQ(JValue(true), response["returnValue"]);
+        EXPECT_EQ(JValue(42), response["answer"]);
         return true;
     };
 

@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2012-2013 LG Electronics, Inc.
+# Copyright (c) 2012-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
-description "watchdog to reboot if ls-hubd_private or ls-hubd_public dies"
+description "watchdog to reboot if ls-hubd dies"
 
-start on stopping ls-hubd_private or stopping ls-hubd_public
+start on stopping ls-hubd
 
-# This job is started when either ls-hubd_public or ls-hubd_private
-# enter the 'stopping' state.  If this is part of a normal exit
-# (manual shutdown or reboot) 
+# This job is started when ls-hubd enter the 'stopping' state.
+# If this is part of a normal exit (manual shutdown or reboot)
 #    RESULT will be "ok"
 #     - or -
 #   RUNLEVEL will be 0 or 1 (shutdown) or 6 (reboot)

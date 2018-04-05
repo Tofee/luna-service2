@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
 #include <luna-service2/lunaservice.hpp>
-#include "util.hpp"
 
-#include <thread>
+#include "json_payload.hpp"
+#include "test_util.hpp"
+
 #include <chrono>
 #include <ctime>
 
@@ -28,9 +27,10 @@
 namespace
 {
 
-#define SIMPLE_URI "palm://com.palm.test_call_service/testCalls/simpleCall"
-#define TIMEOUT_URI "palm://com.palm.test_call_service/testCalls/timeoutCall"
-#define SUBSCRIBE_URI "palm://com.palm.test_call_service/testCalls/subscribeCall"
+#define SIMPLE_URI "luna://com.palm.test_call_service/testCalls/simpleCall"
+#define TIMEOUT_URI "luna://com.palm.test_call_service/testCalls/timeoutCall"
+#define SUBSCRIBE_URI "luna://com.palm.test_call_service/testCalls/subscribeCall"
+#define ECHO_APPID_URI "luna://com.palm.test_call_service/testCalls/echoAppIdCall"
 
 class CallTest : public ::testing::Test
 {
@@ -54,7 +54,10 @@ protected:
 
     virtual void TearDown()
     {
+        _service = {};
         g_main_loop_unref(_mainloop);
+        // Let hub do its cleanup work before the next test
+        usleep(1000);
     }
 
     GMainLoop * _mainloop;
@@ -66,6 +69,7 @@ protected:
         NOT_SET,
         ON_REPLY,
         ON_TIMEOUT,
+        ON_CALL_TIMEOUT,
         ON_MAINLOOP_FAILURE
     };
 
@@ -75,7 +79,13 @@ protected:
     {
         if (reply)
         {
-            (static_cast<CallTest *>(context))->_resultFlag = ON_REPLY;
+            if (!g_strcmp0(LUNABUS_ERROR_CATEGORY, LSMessageGetCategory(reply)) &&
+                !g_strcmp0(LUNABUS_ERROR_CALL_TIMEOUT, LSMessageGetMethod(reply)))
+            {
+                (static_cast<CallTest *>(context))->_resultFlag = ON_CALL_TIMEOUT;
+            }
+            else
+                (static_cast<CallTest *>(context))->_resultFlag = ON_REPLY;
         }
         g_main_loop_quit((static_cast<CallTest *>(context))->_mainloop);
         return true;
@@ -132,24 +142,25 @@ TEST_F(CallTest, ExceptionOnInvalidHandle)
 // Tests set reply callback before main loop
 TEST_F(CallTest, SetReplyCBBeforeLoop)
 {
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
     LS::Call call = _service.callOneReply(SIMPLE_URI, "{}");
     call.continueWith(onReplyCB, this);
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
     ASSERT_EQ(ON_REPLY, _resultFlag);
+    ASSERT_FALSE(call.isActive());
 }
 
 // Tests set reply callback after loop
 TEST_F(CallTest, SetReplyCBAfterLoop)
 {
+    Timeout setCB{100, [this]{return onTimeoutSetCB(this);}, _mainloop};
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
+
     LS::Call call = _service.callOneReply(SIMPLE_URI, "{}");
     _call = &call;
-    GTimeout setCB{100, [this]{return onTimeoutSetCB(this);}};
-    setCB.attach(g_main_loop_get_context(_mainloop));
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
     ASSERT_EQ(ON_REPLY, _resultFlag);
@@ -158,9 +169,9 @@ TEST_F(CallTest, SetReplyCBAfterLoop)
 // Tests calling with callback before main loop started
 TEST_F(CallTest, CallCBBeforeLoop)
 {
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
     LS::Call call = _service.callOneReply(SIMPLE_URI, "{}", onReplyCB, this);
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
     ASSERT_EQ(ON_REPLY, _resultFlag);
@@ -169,12 +180,12 @@ TEST_F(CallTest, CallCBBeforeLoop)
 // Tests calling with callback after main loop started
 TEST_F(CallTest, CallCBAfterLoop)
 {
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
+    Timeout callWithCB{100, [this]{return onTimeoutCallWithCB(this);}, _mainloop};
+
     LS::Call call;
     _call = &call;
-    GTimeout callWithCB{100, [this]{return onTimeoutCallWithCB(this);}};
-    callWithCB.attach(g_main_loop_get_context(_mainloop));
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
     ASSERT_EQ(ON_REPLY, _resultFlag);
@@ -183,10 +194,11 @@ TEST_F(CallTest, CallCBAfterLoop)
 // Tests call timeout
 TEST_F(CallTest, CallTimeout)
 {
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
+
     LS::Call call = _service.callOneReply(TIMEOUT_URI, R"({"timeout": 100})", onReplyCB, this);
     call.setTimeout(200);
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
     ASSERT_EQ(ON_REPLY, _resultFlag);
@@ -195,16 +207,15 @@ TEST_F(CallTest, CallTimeout)
 // Tests call timeout expiration
 TEST_F(CallTest, CallTimeoutExpiration)
 {
+    Timeout hangingCB{1000, [this]{return onHangingCB(this);}, _mainloop};
+    Timeout timeoutCB{500, [this]{return onTimeoutCB(this);}, _mainloop};
+
     LS::Call call = _service.callOneReply(TIMEOUT_URI, R"({"timeout": 300})", onReplyCB, this);
     call.setTimeout(150);
-    _resultFlag = ON_TIMEOUT;
-    GTimeout hangingCB{1000, [this]{return onHangingCB(this);}};
-    hangingCB.attach(g_main_loop_get_context(_mainloop));
-    GTimeout timeoutCB{500, [this]{return onTimeoutCB(this);}};
-    timeoutCB.attach(g_main_loop_get_context(_mainloop));
+
     g_main_loop_run(_mainloop);
     ASSERT_FALSE(ON_MAINLOOP_FAILURE == _resultFlag) << "Main loop quit condition failed - loop not finished in time";
-    ASSERT_EQ(ON_TIMEOUT, _resultFlag);
+    ASSERT_EQ(ON_CALL_TIMEOUT, _resultFlag);
 }
 
 // Tests get interface
@@ -215,6 +226,22 @@ TEST_F(CallTest, MainLoopGet)
     ASSERT_TRUE(bool(reply));
     reply = call.get();
     ASSERT_TRUE(bool(reply));
+}
+
+// Tests isActive method
+TEST_F(CallTest, isActive)
+{
+    LS::Call call = _service.callMultiReply(SUBSCRIBE_URI, R"({"subscribe": true, "timeout": 100})");
+
+    auto reply = call.get();
+    ASSERT_TRUE(bool(reply));
+
+    ASSERT_TRUE(call.isActive());
+    call.cancel();
+    ASSERT_FALSE(call.isActive());
+
+    reply = call.get(200);
+    ASSERT_FALSE(bool(reply));
 }
 
 // Tests get interface with timeout (wait failed)
@@ -233,6 +260,27 @@ TEST_F(CallTest, MainLoopGetTimeoutSuccess)
     LS::Call call = _service.callMultiReply(TIMEOUT_URI, R"({"subscribe": true, "timeout": 200})");
     auto reply = call.get(250);
     ASSERT_TRUE(bool(reply));
+}
+
+// Tests call with/without application Id
+TEST_F(CallTest, CallWithApplicationId)
+{
+    std::string appId = "com.palm.app.foo", noAppId = "", replyAppId;
+    LS::Call call = _service.callOneReply(ECHO_APPID_URI, "{}", appId.c_str());
+    auto reply = call.get();
+    ASSERT_TRUE(bool(reply));
+    LS::JSONPayload reply1{reply.getPayload()};
+    ASSERT_TRUE(reply1.isValid());
+    ASSERT_TRUE(reply1.get("appId", replyAppId));
+    ASSERT_EQ(appId, replyAppId);
+
+    call = _service.callOneReply(ECHO_APPID_URI, "{}");
+    reply = call.get();
+    ASSERT_TRUE(bool(reply));
+    LS::JSONPayload reply2{reply.getPayload()};
+    ASSERT_TRUE(reply2.isValid());
+    ASSERT_TRUE(reply2.get("appId", replyAppId));
+    ASSERT_EQ(noAppId, replyAppId);
 }
 
 struct CallTimeoutCallbacks

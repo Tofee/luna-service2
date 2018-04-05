@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -80,17 +78,17 @@ formatTransportMessageReplyBuffer(char *dest, LSMessageToken token, const char *
     g_assert(NULL != dest_uniquename);
 
     char *dest_org = dest;
-    const char *p[] = { payload, dest_servicename, dest_uniquename };
-    int i;
+    const char *p[] = { "json", payload, dest_servicename, dest_uniquename };
 
     memcpy(dest, &token, sizeof(token));
     dest += sizeof(token);
 
-    for (i = 0; i < sizeof(p)/sizeof(p[0]); ++i)
+    for (int i = 0; i < sizeof(p)/sizeof(p[0]); ++i)
     {
         strcpy(dest, p[i]);
         dest += strlen(p[i]) + 1;
     }
+
     return dest - dest_org;
 }
 
@@ -252,8 +250,8 @@ test_LSTransportMessageMiscGetSet(TestData *fixture, gconstpointer user_data)
     g_assert_cmpint(_LSTransportMessageGetToken(fixture->msg), ==, 1);
 
     // get/set connection fd
-    _LSTransportMessageSetConnectionFd(fixture->msg, 1234);
-    g_assert_cmpint(_LSTransportMessageGetConnectionFd(fixture->msg), ==, 1234);
+    _LSTransportMessageSetFd(fixture->msg, 1234);
+    g_assert_cmpint(_LSTransportMessageGetFd(fixture->msg), ==, 1234);
 
     // set/get type
     _LSTransportMessageSetType(fixture->msg, _LSTransportMessageTypeError);
@@ -286,10 +284,16 @@ test_LSTransportMessageMiscGetSet(TestData *fixture, gconstpointer user_data)
 static void
 test_LSTransportMessageGetError(TestData *fixture, gconstpointer user_data)
 {
+    const char* data = "{\"returnValue\": false}";
     _LSTransportMessageSetType(fixture->msg, _LSTransportMessageTypeError);
-    strcpy(_LSTransportMessageGetBody(fixture->msg) + sizeof(LSMessageToken), "error");
 
-    g_assert_cmpstr(_LSTransportMessageGetError(fixture->msg), ==, "error");
+    char *ptr = _LSTransportMessageGetBody(fixture->msg) + sizeof(LSMessageToken);
+    LSPayload *payload = LSPayloadFromJson(data);
+
+    (void)_LSPayloadSerialize(ptr, payload);
+    g_assert_cmpstr(_LSTransportMessageGetError(fixture->msg), ==, data);
+
+    LSPayloadFree(payload);
 }
 
 static void
@@ -428,16 +432,19 @@ test_LSTransportMessageFilterMatch(TestData *fixture, gconstpointer user_data)
     fixture->transport_client_unique_name = "1";
     fixture->transport_client_service_name = "2";
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDOUT))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         // should return false
         bool result = LSTransportMessageFilterMatch(fixture->msg, "");
         exit(result ? 1 : 0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_passed();
     gchar *expected_output = g_strdup_printf("No filter match function for message type: %d\n", _LSTransportMessageTypeUnknown);
     g_test_trap_assert_stdout(expected_output);
     g_free(expected_output);
+#endif
 
     _LSTransportMessageSetType(fixture->msg, _LSTransportMessageTypeSignal);
     g_assert(LSTransportMessageFilterMatch(fixture->msg, "1"));
@@ -463,14 +470,17 @@ test_LSTransportMessageFilterMatch(TestData *fixture, gconstpointer user_data)
 static void
 test_LSTransportMessagePrintUnknownMessage(TestData *fixture, gconstpointer user_data)
 {
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDOUT))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         LSTransportMessagePrint(fixture->msg, stdout);
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     gchar *expected_output = g_strdup_printf("No print function for message type: %d\n", _LSTransportMessageTypeUnknown);
     g_test_trap_assert_stdout(expected_output);
     g_free(expected_output);
+#endif
 }
 
 static void
@@ -686,6 +696,7 @@ test_LSTransportMessagePrintCompactHeaderCommon(TestData *fixture, gconstpointer
                                       (_LST_DATA_ALIGN - (_LST_DIRECTION_ALIGN + 2)), service_name);
     g_assert_cmpstr(expected_output, ==, fgets(buffer, sizeof(buffer), output));
     g_free(expected_output);
+    fclose(output);
 }
 
 static void
@@ -826,7 +837,6 @@ test_LSTransportMessagePrintCompactReplyHeader(TestData *fixture, gconstpointer 
     fclose(output);
 }
 
-
 static bool
 is_in_array(GArray *array, _LSTransportMessageType item)
 {
@@ -848,6 +858,7 @@ test_LSTransportMessageTypes(TestData *fixture, gconstpointer user_data)
     {
         _LSTransportMessageTypeMethodCall,
         _LSTransportMessageTypeReply,
+        _LSTransportMessageTypeReplyWithFd,
         _LSTransportMessageTypeSignal,
         _LSTransportMessageTypeCancelMethodCall
     };
@@ -891,6 +902,7 @@ test_LSTransportMessageTypes(TestData *fixture, gconstpointer user_data)
     const _LSTransportMessageType reply_types[] =
     {
         _LSTransportMessageTypeReply,
+        _LSTransportMessageTypeReplyWithFd,
         _LSTransportMessageTypeQueryServiceStatusReply
     };
     types = g_array_append_vals(types, error_types, G_N_ELEMENTS(error_types));
@@ -912,9 +924,10 @@ test_LSTransportMessageTypes(TestData *fixture, gconstpointer user_data)
     // test connectionfd types
     const _LSTransportMessageType connectionfd_types[] =
     {
+        _LSTransportMessageTypeReplyWithFd,
         _LSTransportMessageTypeQueryNameReply,
-        _LSTransportMessageTypeRequestNameLocalReply,
-        _LSTransportMessageTypeMonitorConnected
+        _LSTransportMessageTypeMonitorConnected,
+        _LSTransportMessageTypeMonitorAcceptClient
     };
     types = g_array_append_vals(types, connectionfd_types, G_N_ELEMENTS(connectionfd_types));
 
@@ -923,9 +936,9 @@ test_LSTransportMessageTypes(TestData *fixture, gconstpointer user_data)
         _LSTransportMessageSetType(fixture->msg, i);
 
         if (is_in_array(types, i))
-            g_assert(_LSTransportMessageIsConnectionFdType(fixture->msg));
+            g_assert(_LSTransportMessageIsFdType(fixture->msg));
         else
-            g_assert(!_LSTransportMessageIsConnectionFdType(fixture->msg));
+            g_assert(!_LSTransportMessageIsFdType(fixture->msg));
     }
 
     g_array_free(types, TRUE);

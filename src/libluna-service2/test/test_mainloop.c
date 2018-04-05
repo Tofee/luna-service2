@@ -1,25 +1,24 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <glib.h>
 #include <luna-service2/lunaservice.h>
 #include <base.h>
+#include <transport_priv.h>
 
 /* Mock variables *************************************************************/
 
@@ -45,10 +44,11 @@ test_LSMainAttachDetachPositive(void)
     LSError error;
     LSErrorInit(&error);
     LSPalmService service;
+    _LSTransport transport = {};
     mvar_priv_sh.context = NULL;
     mvar_publ_sh.context = NULL;
-    mvar_priv_trans = (_LSTransport*)0x3456;
-    mvar_publ_trans = (_LSTransport*)0x4567;
+    mvar_priv_trans = &transport;
+    mvar_publ_trans = &transport;
     mvar_priv_sh.transport = mvar_priv_trans;
     mvar_publ_sh.transport = mvar_publ_trans;
     service.public_sh = &mvar_publ_sh;
@@ -59,19 +59,17 @@ test_LSMainAttachDetachPositive(void)
     /* case: return value. */
     g_assert(ret);
     /* case: both services attached. */
-    g_assert_cmpint(mvar_attach_count, ==, 2);
+    g_assert_cmpint(mvar_attach_count, ==, 1);
     /* case: both contexts saved. */
     g_assert(NULL != mvar_priv_sh.context);
     g_assert(NULL != mvar_publ_sh.context);
 
     /* Change priority. */
-    mvar_priv_trans = (_LSTransport*)0x3456;
-    mvar_publ_trans = (_LSTransport*)0x4567;
     ret = LSGmainSetPriorityPalmService(&service, mvar_priority, &error);
     /* case: return value. */
     g_assert(ret);
     /* case: both service priorities changed. */
-    g_assert_cmpint(mvar_priority_count, ==, 2);
+    g_assert_cmpint(mvar_priority_count, ==, 1);
 
     /* Detach services. */
     /* NOTE: LSGmainDetachPalmService seems to be dead code... it is not

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #ifndef _ERROR_H
@@ -29,10 +27,15 @@
 #include "log.h"
 
 /**
+ * @cond INTERNAL
  * @defgroup LunaServiceErrorInternal   LunaServiceErrorInternal
  * @ingroup LunaServiceInternals
  * @{
  */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define LS_ERROR_TEXT_UNKNOWN_ERROR     "Unknown error"
 #define LS_ERROR_TEXT_OOM               "Out of memory"
@@ -124,7 +127,7 @@ do {                                                                  \
             -1,                                                       \
             #cond );                                                  \
         return false;                                                 \
-    } 								      \
+    }                                                                 \
 } while (0)
 
 #define _LSErrorIfFailMsg(cond, lserror, message_id, error_code, ...) \
@@ -179,6 +182,7 @@ do {                                                                    \
  * @brief Used to set an error with a printf-style error message.
  *
  * @param  lserror      OUT error
+ * @param  message_id   IN  message identifier
  * @param  error_code   IN  error code
  * @param  ...          IN  printf-style format
  *******************************************************************************
@@ -194,27 +198,7 @@ do {                                                      \
 
 /**
  *******************************************************************************
- * @brief Use this instead of _LSErrorSet when the error_message is not a
- * printf-style string (error_message could contain printf() escape
- * sequences)
- *
- * @param  lserror          OUT error
- * @param  error_code       IN  code
- * @param  error_message    IN  error_message
- *******************************************************************************
- */
-#define _LSErrorSetLiteral(lserror, message_id, error_code, error_message) \
-do {                                                                       \
-    LOG_LS_ERROR(message_id, 3,                                            \
-                 PMLOGKS("ERROR", error_message),                          \
-                 PMLOGKS("FILE", LS__FILE__BASENAME),                      \
-                 PMLOGKFV("LINE", "%d", __LINE__));                        \
-    _LSErrorSetNoPrintLiteral(lserror, error_code, error_message);         \
-} while (0)
-
-/**
- *******************************************************************************
- * @brief Use this function instead of _LSErrorSet to set an error when
+ * @brief Use this macro instead of _LSErrorSet to set an error when
  * out of memory.
  *
  * @todo This shouldn't attempt to allocate any memory, since we're already
@@ -230,7 +214,7 @@ do {                                                            \
 
 /**
  *******************************************************************************
- * @brief Use this function instead of _LSErrorSet to set an error when
+ * @brief Use this macro instead of _LSErrorSet to set an error when
  * retry later error occurs.
  *
  * @param  lserror  IN  ptr to lserror
@@ -241,33 +225,43 @@ do {                                                               \
     _LSErrorSet(lserror, MSGID_LS_EAGAIN_ERR, LS_ERROR_CODE_EAGAIN, LS_ERROR_TEXT_EAGAIN); \
 } while (0)
 
-/**
- *******************************************************************************
- * @brief Use this function instead of _LSErrorSet() to set an error from a
- * glib GError. This function frees the GError.
- *
- * @param  lserror  IN  lserror
- * @param  gerror   IN  GError ptr
- *******************************************************************************
- */
-#define _LSErrorSetFromGError(lserror, message_id, gerror)             \
-do {                                                                   \
-    LOG_LS_ERROR(message_id, 4,                                        \
-                 PMLOGKFV("ERROR_CODE", "%d", gerror->code),           \
-                 PMLOGKS("ERROR", gerror->message),                    \
-                 PMLOGKS("FILE", LS__FILE__BASENAME),                  \
-                 PMLOGKFV("LINE", "%d", __LINE__),                     \
-                 "GLIB Error");                                        \
-    _LSErrorSetNoPrintLiteral(lserror, gerror->code, gerror->message); \
-    g_error_free(gerror);                                              \
-} while (0)
+static inline void _LSErrorSetFromGErrorFunc(const char *file,
+                                             int line,
+                                             LSError *lserror,
+                                             const char *message_id,
+                                             GError *gerror)
+{
+    LOG_LS_ERROR(message_id, 4,
+                 PMLOGKFV("ERROR_CODE", "%d", gerror->code),
+                 PMLOGKS("ERROR", gerror->message),
+                 PMLOGKS("FILE", file),
+                 PMLOGKFV("LINE", "%d", line),
+                 "GLIB Error");
+    _LSErrorSetNoPrintLiteral(lserror, gerror->code, gerror->message);
+    g_error_free(gerror);
+}
 
 /**
  *******************************************************************************
- * @brief Use this function instead of _LSErrorSet() to set an error from an
+ * @brief Use this macro instead of _LSErrorSet() to set an error from a
+ * glib GError. This macro frees the GError.
+ *
+ * @param  lserror     IN  lserror
+ * @param  message_id  IN  message identifier
+ * @param  gerror      IN  GError ptr
+ *******************************************************************************
+ */
+#define _LSErrorSetFromGError(lserror, message_id, gerror)             \
+    _LSErrorSetFromGErrorFunc(LS__FILE__BASENAME, __LINE__, lserror, message_id, gerror)
+
+
+/**
+ *******************************************************************************
+ * @brief Use this macro instead of _LSErrorSet() to set an error from an
  * errno
  *
  * @param  lserror      IN  lserror
+ * @param  message_id   IN  message identifier
  * @param  error_code   IN  errno
  *******************************************************************************
  */
@@ -283,6 +277,13 @@ do {                                                                \
                              __FUNCTION__, error_code);             \
 } while (0)
 
-/* @} END OF LunaServiceErrorInternal */
+/**
+ * @} END OF LunaServiceErrorInternal
+ * @endcond
+ */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // _ERROR_H

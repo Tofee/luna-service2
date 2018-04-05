@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2008-2013 LG Electronics, Inc.
+# Copyright (c) 2008-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
-add_executable(luna-send luna-send.c)
-target_link_libraries(luna-send ${CMAKE_PROJECT_NAME})
-webos_build_program(NAME luna-send ${LS2_RESTRICTED})
+project(luna-send)
 
-add_executable(luna-send-pub luna-send.c)
-target_link_libraries(luna-send-pub ${CMAKE_PROJECT_NAME})
-set_target_properties(luna-send-pub PROPERTIES COMPILE_DEFINITIONS "PUBLIC_HUB_ONLY")
-webos_build_program(NAME luna-send-pub)
+webos_add_compiler_flags(ALL --std=c++11)
+
+add_executable(${PROJECT_NAME} luna-send.cpp)
+target_link_libraries(${PROJECT_NAME} ${CMAKE_PROJECT_NAME})
+
+add_executable(${PROJECT_NAME}-pub luna-send.cpp)
+target_link_libraries(${PROJECT_NAME}-pub ${CMAKE_PROJECT_NAME})
+set_target_properties(${PROJECT_NAME}-pub PROPERTIES COMPILE_DEFINITIONS "PUBLIC_HUB_ONLY")
+
+if (WEBOS_CONFIG_BUILD_TESTS)
+    add_subdirectory(test)
+else()
+    message(STATUS "luna-send: skipping automatic tests")
+endif()
+
+webos_build_program(NAME ${PROJECT_NAME} ${LS2_RESTRICTED})
+webos_build_program(NAME ${PROJECT_NAME}-pub)

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -118,44 +116,6 @@ test_timer_source_set_interval()
     g_source_unref((GSource*)source);
 }
 
-static void
-test_timer_source_set_interval_seconds()
-{
-    // 2s interval
-    GTimerSource *source = g_timer_source_new_seconds(2);
-
-    // 1s interval
-    g_timer_source_set_interval_seconds(source, 1, true);
-
-    g_assert_cmpint(g_timer_source_get_interval_ms(source), ==, 1000);
-
-    // no main loop, no main context, cannot wakeup context, expect warning
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        g_timer_source_set_interval_seconds(source, 2, false);
-        exit(0);
-    }
-    g_test_trap_assert_stderr("*Cannot get context for timer_source*");
-
-    // valid main loop/context, source attached, expect no warning
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        GMainLoop *main_loop = g_main_loop_new(NULL, false);
-
-        g_source_attach ((GSource*)source, NULL);
-
-        g_timer_source_set_interval_seconds(source, 1, false);
-
-        g_main_loop_unref(main_loop);
-        g_source_unref((GSource*)source);
-
-        exit(0);
-    }
-    g_test_trap_assert_stderr_unmatched("*Cannot get context for timer_source*");
-
-    g_source_unref((GSource*)source);
-}
-
 /* Test suite *****************************************************************/
 
 int
@@ -168,7 +128,6 @@ main(int argc, char *argv[])
 
     g_test_add_func("/luna-service2/g_timer_source_new", test_timer_source_new);
     g_test_add_func("/luna-service2/g_timer_source_set_interval", test_timer_source_set_interval);
-    g_test_add_func("/luna-service2/g_timer_source_set_interval_seconds", test_timer_source_set_interval_seconds);
 
     return g_test_run();
 }

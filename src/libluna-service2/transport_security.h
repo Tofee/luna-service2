@@ -1,26 +1,26 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2010-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2010-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #ifndef _TRANSPORT_SECURITY_H_
 #define _TRANSPORT_SECURITY_H_
 
 #include <stdbool.h>
 #include "error.h"
+
+/** @cond INTERNAL */
 
 #define LS_PID_INVALID      -1
 #define LS_GID_INVALID      -1
@@ -51,5 +51,7 @@ const char* _LSTransportCredGetCmdLine(const _LSTransportCred *cred);
 void _LSTransportCredSetExePath(_LSTransportCred *cred, char const *exe_path);
 void _LSTransportCredSetPid(_LSTransportCred *cred, pid_t pid);
 #endif //UNIT_TESTS
+
+/** @endcond */
 
 #endif  /* _TRANSPORT_SECURITY_H_ */

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <glib.h>
@@ -67,6 +65,8 @@ typedef struct TestData
     char *registerserverstatus_service_name;
     // service connected flag of test_registerserverstatus_callback
     bool registerserverstatus_connected;
+    // call timeout expiration message processed flag
+    bool timeout_expiration_msg_processed;
 } TestData;
 
 static TestData *test_data = NULL;
@@ -77,6 +77,7 @@ test_setup(TestData *fixture, gconstpointer user_data)
     test_data = fixture;
 
     fixture->transport_message_type = _LSTransportMessageTypeUnknown;
+    fixture->timeout_expiration_msg_processed = false;
 
     LSError error;
     LSErrorInit(&error);
@@ -99,6 +100,12 @@ test_methodcall_callback(LSHandle *sh, LSMessage *reply, void *ctx)
     LSMessageRef(test_data->methodcall_reply);
 
     ++test_data->methodcall_callback_called;
+
+    if (!g_strcmp0(LUNABUS_ERROR_CATEGORY, LSMessageGetCategory(test_data->methodcall_reply)) &&
+        !g_strcmp0(LUNABUS_ERROR_CALL_TIMEOUT, LSMessageGetMethod(test_data->methodcall_reply)))
+    {
+        test_data->timeout_expiration_msg_processed = true;
+    }
 
     return true;
 }
@@ -137,19 +144,14 @@ test_CallMapInitAndDeinit(void)
     LSHandle *sh = GINT_TO_POINTER(1);
     _CallMap *map = NULL;
 
-    if (g_test_trap_fork(0, 0))
-    {
-        g_assert(_CallMapInit(sh, &map, &error));
-        g_assert(NULL != map);
-        _CallMapDeinit(sh, map);
-        exit(0);
-    }
-    g_test_trap_assert_passed();
+    g_assert(_CallMapInit(sh, &map, &error));
+    g_assert(NULL != map);
+    _CallMapDeinit(sh, map);
 }
 
 // TODO: no _LSHandleMessageFailure declaration available
 extern void
-_LSHandleMessageFailure(LSMessageToken global_token, _LSTransportMessageFailureType failure_type, void *context);
+_LSHandleMessageFailure(_LSTransportMessage *message, _LSTransportMessageFailureType failure_type, void *context);
 
 static void
 test_LSHandleMessageFailure(TestData *fixture, gconstpointer user_data)
@@ -204,12 +206,23 @@ test_LSHandleMessageFailure(TestData *fixture, gconstpointer user_data)
     {
         // append call, receive token
         LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
-        g_assert(LSCall(&fixture->sh, "palm://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error));
+        g_assert(LSCall(&fixture->sh, "luna://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error));
         g_assert_cmpint(token, !=, LSMESSAGE_TOKEN_INVALID);
 
         fixture->methodcall_callback_called = 0;
 
-        _LSHandleMessageFailure(token, failures[i].failure_type, &fixture->sh);
+        // We're testing _LSHandleMessageFailure, for which only token is needed.
+        _LSTransportMessageRaw failed_raw_message = {
+            .header = {
+                .token = token,
+            },
+        };
+
+        _LSTransportMessage failed_message = {
+            .raw = &failed_raw_message,
+        };
+
+        _LSHandleMessageFailure(&failed_message, failures[i].failure_type, &fixture->sh);
 
         // make sure failure message sent once
         g_assert_cmpint(fixture->methodcall_callback_called, ==, 1);
@@ -218,6 +231,85 @@ test_LSHandleMessageFailure(TestData *fixture, gconstpointer user_data)
         g_assert_cmpstr(fixture->methodcall_reply->category, ==, failures[i].category);
         g_assert_cmpstr(fixture->methodcall_reply->method, ==, failures[i].method);
         g_assert_cmpstr(fixture->methodcall_reply->payload, ==, failures[i].payload);
+
+        g_assert(fixture->methodcall_reply->kindAllocated == NULL);
+        g_assert(fixture->methodcall_reply->methodAllocated == NULL);
+        g_assert(fixture->methodcall_reply->uniqueTokenAllocated == NULL);
+
+        g_assert_cmpint(fixture->methodcall_reply->ref, ==, 1);
+        LSMessageUnref(fixture->methodcall_reply);
+    }
+}
+
+bool LSTransportSendQueryServiceCategory(_LSTransport *transport, bool is_public_bus,
+                                         const char *service_name, const char *category,
+                                         LSMessageToken *token, LSError *lserror)
+{
+    *token = ++test_data->transport_next_serial;
+    ++test_data->transport_send_called;
+    return true;
+}
+
+static void
+test_LSHandleHubMessageFailure(TestData *fixture, gconstpointer user_data)
+{
+    LSError error;
+    LSErrorInit(&error);
+
+    struct MessageFailureData
+    {
+        // failure type to handle
+        _LSTransportMessageFailureType failure_type;
+
+        // expected message data for current failure
+        const char *category;
+        const char *method;
+        const char *payload;
+    };
+
+    const char *urls[] = {
+        "luna://com.webos.service.bus/signal/addmatch",
+        "luna://com.webos.service.bus/signal/registerServerStatus",
+        "luna://com.webos.service.bus/signal/registerServiceCategory"
+    };
+
+    const struct MessageFailureData failure = {
+        _LSTransportMessageFailureTypeNotProcessed,
+        LUNABUS_ERROR_CATEGORY,
+        LUNABUS_ERROR_SERVICE_DOWN,
+        "{\"returnValue\":false,\"errorCode\":-1,\"errorText\":\"Message not processed.\"}"
+        };
+
+    int i;
+    for (i=0; i < sizeof(urls)/sizeof(urls[0]); ++i)
+    {
+        // append call, receive token
+        LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
+        g_assert(LSCall(&fixture->sh, urls[i], "{\"method\":\"test\",\"category\":\"/hub\",\"serviceName\":\"client\"}", test_methodcall_callback, NULL, &token, &error));
+        g_assert_cmpint(token, !=, LSMESSAGE_TOKEN_INVALID);
+
+        fixture->methodcall_callback_called = 0;
+
+        // We're testing _LSHandleMessageFailure, for which only token is needed.
+        _LSTransportMessageRaw failed_raw_message = {
+            .header = {
+                .token = token,
+            },
+        };
+
+        _LSTransportMessage failed_message = {
+            .raw = &failed_raw_message,
+        };
+
+        _LSHandleMessageFailure(&failed_message, failure.failure_type, &fixture->sh);
+
+        // make sure failure message sent once
+        g_assert_cmpint(fixture->methodcall_callback_called, ==, 1);
+
+        // and verify message content
+        g_assert_cmpstr(fixture->methodcall_reply->category, ==, failure.category);
+        g_assert_cmpstr(fixture->methodcall_reply->method, ==, failure.method);
+        g_assert_cmpstr(fixture->methodcall_reply->payload, ==, failure.payload);
 
         g_assert(fixture->methodcall_reply->kindAllocated == NULL);
         g_assert(fixture->methodcall_reply->methodAllocated == NULL);
@@ -241,13 +333,12 @@ test_LSDisconnectHandler(TestData *fixture, gconstpointer user_data)
     _LSTransportClient client =
     {
         .service_name = "com.name.service",
-        .initiator = 1
     };
     _LSTransportDisconnectType type = _LSTransportDisconnectTypeClean;
 
     // Append method call
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
-    LSCall(&fixture->sh, "palm://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error);
+    LSCall(&fixture->sh, "luna://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error);
 
     // com.name.service down
     _LSDisconnectHandler(&client, type, &fixture->sh);
@@ -319,7 +410,7 @@ test_LSHandleReply(TestData *fixture, gconstpointer user_data)
     // handle method call reply
 
     token = LSMESSAGE_TOKEN_INVALID;
-    LSCall(&fixture->sh, "palm://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error);
+    LSCall(&fixture->sh, "luna://com.name.service/method", "{}", test_methodcall_callback, NULL, &token, &error);
 
     // service down signal received
     fixture->transport_message_type = _LSTransportMessageTypeServiceDownSignal;
@@ -340,13 +431,13 @@ test_LSHandleReply(TestData *fixture, gconstpointer user_data)
     LSRegisterServerStatusEx(&fixture->sh, "com.name.service", test_registerserverstatus_callback, NULL,
                              &cookie, &error);
 
-    // service down signal received
-    fixture->transport_message_type = _LSTransportMessageTypeServiceDownSignal;
+    // service up signal received
+    fixture->transport_message_type = _LSTransportMessageTypeServiceUpSignal;
 
     g_assert(_LSHandleReply(&fixture->sh, msg));
     g_assert_cmpint(fixture->register_server_status_callback_called, ==, 1);
     g_assert_cmpstr(fixture->registerserverstatus_service_name, ==, "com.name.service");
-    g_assert(!fixture->registerserverstatus_connected);
+    g_assert(fixture->registerserverstatus_connected);
 
     g_assert(LSCancelServerStatus(&fixture->sh, cookie, &error));
     LSErrorFree(&error);
@@ -358,7 +449,7 @@ test_LSCallAndCancel(TestData *fixture, gconstpointer user_data)
     LSError error;
     LSErrorInit(&error);
 
-    const char *uri = "palm://com.name.service/method";
+    const char *uri = "luna://com.name.service/method";
     const char *payload = "{}";
     LSFilterFunc callback = test_methodcall_callback;
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
@@ -372,7 +463,7 @@ test_LSCallAndCancel(TestData *fixture, gconstpointer user_data)
     g_assert_cmpint(fixture->transport_cancel_method_call_called, ==, 1);
 
     // registerServerStatus
-    uri = "palm://com.palm.bus/signal/registerServerStatus";
+    uri = "luna://com.webos.service.bus/signal/registerServerStatus";
     payload = "{ \"serviceName\": \"com.name.service\" }";
     g_assert_cmpint(fixture->transport_send_query_service_status_called, ==, 0);
     g_assert(LSCall(&fixture->sh, uri, payload, callback, GINT_TO_POINTER(1), &token, &error));
@@ -390,7 +481,7 @@ test_LSCallOneReply(TestData *fixture, gconstpointer user_data)
     LSError error;
     LSErrorInit(&error);
 
-    const char *uri = "palm://com.name.service/method";
+    const char *uri = "luna://com.name.service/method";
     const char *payload = "{}";
     LSFilterFunc callback = test_methodcall_callback;
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
@@ -406,19 +497,15 @@ test_LSCallFromApplication(TestData *fixture, gconstpointer user_data)
 {
     LSError error;
     LSErrorInit(&error);
-    const char *uri = "palm://com.name.service/method";
+    const char *uri = "luna://com.name.service/method";
     const char *payload = "{}";
     const char *appid = "0";
     LSFilterFunc callback = test_methodcall_callback;
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        // 'call from application; feature is only valid for privileged binaries
-        fixture->transport_is_privileged = false;
-        g_assert(!LSCallFromApplication(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
-        exit(0);
-    }
+    // 'call from application; feature is only valid for privileged binaries
+    fixture->transport_is_privileged = false;
+    g_assert(!LSCallFromApplication(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
 
     fixture->transport_is_privileged = true;
     g_assert(LSCallFromApplication(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
@@ -438,19 +525,15 @@ test_LSCallFromApplicationOneReply(TestData *fixture, gconstpointer user_data)
     LSError error;
     LSErrorInit(&error);
 
-    const char *uri = "palm://com.name.service/method";
+    const char *uri = "luna://com.name.service/method";
     const char *payload = "{}";
     const char *appid = "com.name.application";
     LSFilterFunc callback = test_methodcall_callback;
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        // 'call from application; feature is only valid for privileged binaries
-        fixture->transport_is_privileged = false;
-        g_assert(!LSCallFromApplicationOneReply(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
-        exit(0);
-    }
+    // 'call from application; feature is only valid for privileged binaries
+    fixture->transport_is_privileged = false;
+    g_assert(!LSCallFromApplicationOneReply(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
 
     fixture->transport_is_privileged = true;
     g_assert(LSCallFromApplicationOneReply(&fixture->sh, uri, payload, appid, callback, NULL, &token, &error));
@@ -506,7 +589,7 @@ test_LSSignalSendNoTypecheck(TestData *fixture, gconstpointer user_data)
     LSError error;
     LSErrorInit(&error);
 
-    const char *uri = "palm://com.name.service/activated";
+    const char *uri = "luna://com.name.service/activated";
     const char *payload = "{}";
 
     g_assert(LSSignalSendNoTypecheck(&fixture->sh, uri, payload, &error));
@@ -518,20 +601,23 @@ test_LSSignalSendNoTypecheck(TestData *fixture, gconstpointer user_data)
 static void
 test_LSSignalSend(TestData *fixture, gconstpointer user_data)
 {
+#if GLIB_CHECK_VERSION(2, 38, 0)
     LSError error;
     LSErrorInit(&error);
 
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    if (g_test_subprocess())
     {
-        const char *uri = "palm://com.name.service/activated";
+        const char *uri = "luna://com.name.service/activated";
         const char *payload = "{}";
 
         g_assert(LSSignalSend(&fixture->sh, uri, payload, &error));
         g_assert_cmpint(fixture->transport_send_signal_called, ==, 1);
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     // no service registered, expecting warning
-    g_test_trap_assert_stderr("*Warning: you did not register signal palm://com.name.service/activated via LSRegisterCategory*");
+    g_test_trap_assert_stderr("*Warning: you did not register signal luna://com.name.service/activated via LSRegisterCategory*");
+#endif
 }
 
 
@@ -554,7 +640,7 @@ test_LSCallSetTimeout(TestData *fixture, gconstpointer user_data)
     LSError error;
     LSErrorInit(&error);
 
-    const char *uri = "palm://com.name.service/whatever";
+    const char *uri = "luna://com.name.service/whatever";
     const char *payload = "{}";
     LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
     int timeout_ms = 100;
@@ -586,6 +672,36 @@ test_LSCallSetTimeout(TestData *fixture, gconstpointer user_data)
     // Ensure the call was canceled by the timer
     g_assert_cmpint(fixture->transport_cancel_method_call_called, ==, 1);
     LSMessageUnref(fixture->methodcall_reply);
+}
+
+static void
+test_LSCallSetTimeoutExpiration(TestData *fixture, gconstpointer user_data)
+{
+    LSError error;
+    LSErrorInit(&error);
+
+    const char *uri = "luna://com.name.service/whatever";
+    const char *payload = "{}";
+    LSMessageToken token = LSMESSAGE_TOKEN_INVALID;
+    int timeout_ms = 100;
+    int delta_t_ms = 20;
+
+    // Send method call with timeout_ms
+    g_assert(LSCall(&fixture->sh, uri, payload, test_methodcall_callback, NULL,
+                    &token, &error));
+    g_assert(LSCallSetTimeout(&fixture->sh, token, timeout_ms, &error));
+
+    // Ensure the timeout expiration message not processed after timeout_ms - 20 milliseconds
+    IterateMainLoop(timeout_ms - delta_t_ms);
+    g_assert_cmpint(fixture->transport_cancel_method_call_called, ==, 0);
+    g_assert_cmpint(fixture->methodcall_callback_called, ==, 0);
+    g_assert(!fixture->timeout_expiration_msg_processed);
+
+    // Ensure the timeout expiration message has been processed after timeout_ms + 20 milliseconds
+    IterateMainLoop(delta_t_ms * 2);
+    g_assert_cmpint(fixture->transport_cancel_method_call_called, ==, 1);
+    g_assert_cmpint(fixture->methodcall_callback_called, ==, 1);
+    g_assert(fixture->timeout_expiration_msg_processed);
 }
 
 /* Mocks **********************************************************************/
@@ -626,7 +742,7 @@ void LSErrorFree(LSError *error)
 // transport.c
 
 bool
-LSTransportSend(_LSTransport *transport, const char *service_name,
+LSTransportSend(_LSTransport *transport, const char *service_name, bool is_public_bus,
                 const char *category, const char *method,
                 const char *payload, const char* applicationId,
                 LSMessageToken *token, LSError *lserror)
@@ -637,7 +753,7 @@ LSTransportSend(_LSTransport *transport, const char *service_name,
 }
 
 bool
-LSTransportCancelMethodCall(_LSTransport *transport, const char *service_name, LSMessageToken serial, LSError *lserror)
+LSTransportCancelMethodCall(_LSTransport *transport, const char *service_name, LSMessageToken serial, bool is_public_bus, LSError *lserror)
 {
     ++test_data->transport_cancel_method_call_called;
     return true;
@@ -645,6 +761,7 @@ LSTransportCancelMethodCall(_LSTransport *transport, const char *service_name, L
 
 bool
 LSTransportSendQueryServiceStatus(_LSTransport *transport, const char *service_name,
+                                  bool is_public_bus,
                                   LSMessageToken *serial, LSError *lserror)
 {
     *serial = ++test_data->transport_next_serial;
@@ -659,6 +776,27 @@ _LSTransportGetPrivileged(const _LSTransport *transport)
 }
 
 // transport_message.c
+
+char*
+_LSTransportMessageGetBody(const _LSTransportMessage *message)
+{
+    (void)message;
+    return NULL;
+}
+
+int
+_LSTransportMessageGetBodySize(const _LSTransportMessage *message)
+{
+    (void)message;
+    return 0;
+}
+
+int
+_LSTransportMessageGetFd(const _LSTransportMessage *message)
+{
+    (void)message;
+    return -1;
+}
 
 _LSTransportMessageType
 _LSTransportMessageGetType(const _LSTransportMessage *message)
@@ -720,6 +858,7 @@ _LSTransportMessageGetError(const _LSTransportMessage *message)
 
 bool
 LSTransportRegisterSignal(_LSTransport *transport, const char *category, const char *method,
+                          bool is_public_bus,
                            LSMessageToken *token, LSError *lserror)
 {
     *token = ++test_data->transport_next_serial;
@@ -729,6 +868,7 @@ LSTransportRegisterSignal(_LSTransport *transport, const char *category, const c
 
 bool
 LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const char *method,
+                            bool is_public_bus,
                            LSMessageToken *token, LSError *lserror)
 {
     g_assert(NULL == token);
@@ -737,21 +877,21 @@ LSTransportUnregisterSignal(_LSTransport *transport, const char *category, const
 }
 
 bool
-LSTransportSendSignal(_LSTransport *transport, const char *category, const char *method, const char *payload, LSError *lserror)
+LSTransportSendSignal(_LSTransport *transport, const char *category, const char *method, const char *payload, bool is_public_bus, LSError *lserror)
 {
     ++test_data->transport_send_signal_called;
     return true;
 }
 
 bool
-LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *service_name,  LSMessageToken *token, LSError *lserror)
+LSTransportRegisterSignalServiceStatus(_LSTransport *transport, const char *service_name, bool is_public_bus, LSMessageToken *token, LSError *lserror)
 {
     g_assert(NULL == token);
     return true;
 }
 
 bool
-LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *service_name,  LSMessageToken *token, LSError *lserror)
+LSTransportUnregisterSignalServiceStatus(_LSTransport *transport, const char *service_name, bool is_public_bus, LSMessageToken *token, LSError *lserror)
 {
     g_assert(NULL == token);
     return true;
@@ -762,14 +902,6 @@ LSTransportServiceStatusSignalGetServiceName(_LSTransportMessage *message)
 {
     // caller responsible to free string returned
     return g_strdup("com.name.service");
-}
-
-// mainloop.c
-
-_LSTransportMessage *
-LSCustomMessageQueuePop(LSCustomMessageQueue *q)
-{
-    return GINT_TO_POINTER(1);
 }
 
 // message.c
@@ -811,6 +943,20 @@ LSMessageGetPayload(LSMessage *message)
     return message->payload;
 }
 
+void
+_LSMessageParsePayload(LSMessage *message)
+{
+    (void)message;
+}
+
+void
+_LSPayloadDeserialize(LSPayload *payload, void *data, size_t size)
+{
+    (void)payload;
+    (void)data;
+    (void)size;
+}
+
 
 // PmLogLib.h
 PmLogErr _PmLogMsgKV(PmLogContext context, PmLogLevel level, unsigned int flags,
@@ -843,6 +989,7 @@ main(int argc, char *argv[])
     g_test_add_func("/luna-service2/CallMapInitAndDeinit", test_CallMapInitAndDeinit);
 
     LSTEST_ADD("/luna-service2/LSHandleMessageFailure", test_LSHandleMessageFailure);
+    LSTEST_ADD("/luna-service2/LSHandleHubMessageFailure", test_LSHandleHubMessageFailure);
     LSTEST_ADD("/luna-service2/LSDisconnectHandler", test_LSDisconnectHandler);
     LSTEST_ADD("/luna-service2/LSHandleReply", test_LSHandleReply);
     LSTEST_ADD("/luna-service2/LSCallAndCallCancel", test_LSCallAndCancel);
@@ -854,6 +1001,7 @@ main(int argc, char *argv[])
     LSTEST_ADD("/luna-service2/LSSignalSendNoTypecheck", test_LSSignalSendNoTypecheck);
     LSTEST_ADD("/luna-service2/LSSignalSend", test_LSSignalSend);
     LSTEST_ADD("/luna-service2/LSCallSetTimeout", test_LSCallSetTimeout);
+    LSTEST_ADD("/luna-service2/LSCallSetTimeoutExpiration", test_LSCallSetTimeoutExpiration);
 
     return g_test_run();
 }

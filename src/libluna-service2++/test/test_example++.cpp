@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
+
+#include <memory>
+#include <atomic>
 
 #include <glib.h>
 #include <luna-service2/lunaservice.hpp>
-#include <memory>
-#include <atomic>
-#include <boost/scope_exit.hpp>
 
 using namespace std;
 
@@ -37,12 +35,12 @@ gboolean OnTimeout(gpointer user_data)
 
 void ClientProc(GMainLoop *serviceLoop)
 {
-    unique_ptr<GMainLoop, std::function<void(GMainLoop*)>> main_loop{g_main_loop_new(NULL, FALSE), g_main_loop_unref};
-    GMainLoop *mainLoop = main_loop.get();
+    unique_ptr<GMainLoop, void(*)(GMainLoop*)> loop_quit(serviceLoop, g_main_loop_quit);
 
-    BOOST_SCOPE_EXIT((serviceLoop)) {
-        g_main_loop_quit(serviceLoop);
-    } BOOST_SCOPE_EXIT_END
+    unique_ptr<GMainContext, void(*)(GMainContext*)> ctx(g_main_context_new(), g_main_context_unref);
+    unique_ptr<GMainLoop, void(*)(GMainLoop*)> main_loop{g_main_loop_new(ctx.get(), FALSE), g_main_loop_unref};
+
+    GMainLoop *mainLoop = main_loop.get();
 
     //! [synchronous client call]
     try
@@ -108,7 +106,7 @@ namespace {
 
 void Test1()
 {
-    unique_ptr<GMainLoop, std::function<void(GMainLoop*)>> main_loop{g_main_loop_new(NULL, FALSE), g_main_loop_unref};
+    unique_ptr<GMainLoop, void(*)(GMainLoop*)> main_loop{g_main_loop_new(NULL, FALSE), g_main_loop_unref};
     GMainLoop *mainLoop = main_loop.get();
     g_timeout_add(10000, &OnTimeout, mainLoop);
     gpointer userData = mainLoop;
@@ -142,7 +140,7 @@ class Category
     : private LS::Handle
 {
 public:
-    Category(GMainLoop *mainLoop)
+    explicit Category(GMainLoop *mainLoop)
         : LS::Handle(LS::registerService("com.palm.contacts"))
     {
         attachToLoop(mainLoop);
@@ -174,7 +172,10 @@ bool listContactsHandler(LSHandle *sh, LSMessage *message, void *ctx)
 
 void AsyncClientProc(GMainLoop *serviceMainLoop)
 {
-    unique_ptr<GMainLoop, std::function<void(GMainLoop*)>> main_loop{g_main_loop_new(NULL, FALSE), g_main_loop_unref};
+    unique_ptr<GMainLoop, void(*)(GMainLoop*)> loop_quit(serviceMainLoop, g_main_loop_quit);
+
+    unique_ptr<GMainContext, void(*)(GMainContext*)> ctx(g_main_context_new(), g_main_context_unref);
+    unique_ptr<GMainLoop, void(*)(GMainLoop*)> main_loop{g_main_loop_new(ctx.get(), FALSE), g_main_loop_unref};
     GMainLoop *mainLoop = main_loop.get();
     void *userData = mainLoop;
 
@@ -196,8 +197,6 @@ void AsyncClientProc(GMainLoop *serviceMainLoop)
         throw;
     }
     //! [asynchronous client call]
-
-    g_main_loop_quit(serviceMainLoop);
 }
 
 void Test2()

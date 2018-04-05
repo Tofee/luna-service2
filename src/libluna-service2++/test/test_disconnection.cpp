@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2014-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include "util.hpp"
 
@@ -34,11 +32,10 @@ atomic_uint g_disc_count{0};
 class TestService
 {
 public:
-    TestService() : _mainloop{nullptr}
+    TestService()
+        : _mainloop(g_main_loop_new(nullptr, FALSE))
+        , _service(LS::registerService("com.palm.test_disconnection"))
     {
-        _mainloop = g_main_loop_new(nullptr, FALSE);
-        _service = LS::registerService("com.palm.test_disconnection");
-
         LSMethod methods[] =
         {
             { "killFork", onKillFork },
@@ -51,6 +48,11 @@ public:
         _service.registerCategory("testCalls", methods, nullptr, nullptr);
         _service.setCategoryData("testCalls", this);
         _service.attachToLoop(_mainloop);
+    }
+
+    ~TestService()
+    {
+        g_main_loop_unref(_mainloop);
     }
 
     static bool onDisconnect(LSHandle *, LSMessage *, void *)
@@ -129,11 +131,11 @@ TEST(TestDiconnection, SubscriptionDisconnectCounter)
                 {
                     char payload[50];
                     sprintf(payload, R"({"pid":%d})", getpid());
-                    call = client.callMultiReply("palm://com.palm.test_disconnection/testCalls/killFork", payload);
+                    call = client.callMultiReply("luna://com.palm.test_disconnection/testCalls/killFork", payload);
                 }
                 else
                 {
-                    call = client.callMultiReply("palm://com.palm.test_disconnection/testCalls/shutdown", "{}");
+                    call = client.callMultiReply("luna://com.palm.test_disconnection/testCalls/shutdown", "{}");
                 }
                 call.get();
             }

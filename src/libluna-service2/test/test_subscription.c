@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -146,67 +144,47 @@ test_LSSubscriptionAddAndRemove(TestData *fixture, gconstpointer user_data)
 }
 
 static void
+test_LSSubscriptionGetSubscribersCount(TestData *fixture, gconstpointer user_data)
+{
+    LSError error;
+    LSErrorInit(&error);
+
+    const char *key = "a/b";
+
+    g_assert_cmpuint(LSSubscriptionGetHandleSubscribersCount(&fixture->sh, key), ==, 0);
+
+    g_assert(LSSubscriptionAdd(&fixture->sh, key, fixture->message, &error));
+
+    g_assert_cmpuint(LSSubscriptionGetHandleSubscribersCount(&fixture->sh, key), ==, 1);
+
+    LSSubscriptionIter *sub_iter = NULL;
+    LSSubscriptionAcquire(&fixture->sh, key, &sub_iter, &error);
+    LSMessage *msg = LSSubscriptionNext(sub_iter);
+    LSMessageUnref(msg);
+    LSSubscriptionRemove(sub_iter);
+
+    g_assert_cmpuint(LSSubscriptionGetHandleSubscribersCount(&fixture->sh, key), ==, 0);
+
+    LSSubscriptionRelease(sub_iter);
+}
+
+static void
 test_CatalogHandleCancel(TestData *fixture, gconstpointer user_data)
 {
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
+    static const char *bad_payloads[] = { "", "{}", "{\"token\":null}", "{\"token\":\"hello\"}" };
+
+    for (size_t i = 0; i < sizeof(bad_payloads)/sizeof(bad_payloads[0]); ++i)
     {
         LSError error;
         LSErrorInit(&error);
-        fixture->message_payload = "";
+        fixture->message_payload = bad_payloads[i];
 
         g_assert(!_CatalogHandleCancel(fixture->catalog, fixture->message, &error));
         g_assert(LSErrorIsSet(&error));
         g_assert_cmpstr(error.message, ==, "Invalid json");
         g_assert_cmpint(error.error_code, ==, -EINVAL);
         LSErrorFree(&error);
-        exit(0);
     }
-    g_test_trap_assert_passed();
-
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        LSError error;
-        LSErrorInit(&error);
-        fixture->message_payload = "{}";
-
-        g_assert(!_CatalogHandleCancel(fixture->catalog, fixture->message, &error));
-        g_assert(LSErrorIsSet(&error));
-        g_assert_cmpstr(error.message, ==, "Invalid json");
-        g_assert_cmpint(error.error_code, ==, -EINVAL);
-        LSErrorFree(&error);
-        exit(0);
-    }
-    g_test_trap_assert_passed();
-
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        LSError error;
-        LSErrorInit(&error);
-        fixture->message_payload = "{\"token\":null}";
-
-        g_assert(!_CatalogHandleCancel(fixture->catalog, fixture->message, &error));
-        g_assert(LSErrorIsSet(&error));
-        g_assert_cmpstr(error.message, ==, "Invalid json");
-        g_assert_cmpint(error.error_code, ==, -EINVAL);
-        LSErrorFree(&error);
-        exit(0);
-    }
-    g_test_trap_assert_passed();
-
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        LSError error;
-        LSErrorInit(&error);
-        fixture->message_payload = "{\"token\":\"hello\"}";
-
-        g_assert(!_CatalogHandleCancel(fixture->catalog, fixture->message, &error));
-        g_assert(LSErrorIsSet(&error));
-        g_assert_cmpstr(error.message, ==, "Invalid json");
-        g_assert_cmpint(error.error_code, ==, -EINVAL);
-        LSErrorFree(&error);
-        exit(0);
-    }
-    g_test_trap_assert_passed();
 
     LSError error;
     LSErrorInit(&error);
@@ -439,12 +417,17 @@ LSCall(LSHandle *sh, const char *uri, const char *payload,
 }
 
 bool
-LSMessageReply(LSHandle *sh, LSMessage *lsmsg, const char *replyPayload,
-                LSError *lserror)
+LSMessageRespond(LSMessage *message, const char *reply_payload, LSError *lserror)
 {
     ++test_data->lsmessagereply_call_count;
     g_free(test_data->lsmessagereply_payload);
-    test_data->lsmessagereply_payload = g_strdup(replyPayload);
+    test_data->lsmessagereply_payload = g_strdup(reply_payload);
+    return true;
+}
+
+bool
+LSMessageIsConnected(LSMessage *msg)
+{
     return true;
 }
 
@@ -470,6 +453,7 @@ main(int argc, char *argv[])
 
     LSTEST_ADD("/luna-service2/LSSubscriptionSetCancelFunction", test_LSSubscriptionSetCancelFunction);
     LSTEST_ADD("/luna-service2/LSSubscriptionAddAndRemove", test_LSSubscriptionAddAndRemove);
+    LSTEST_ADD("/luna-service2/LSSubscriptionGetSubscribersCount", test_LSSubscriptionGetSubscribersCount);
     LSTEST_ADD("/luna-service2/LSSubscriptionGetJson", test_LSSubscriptionGetJson);
     LSTEST_ADD("/luna-service2/LSSubscriptionReply", test_LSSubscriptionReply);
     LSTEST_ADD("/luna-service2/LSSubscriptionRespond", test_LSSubscriptionRespond);

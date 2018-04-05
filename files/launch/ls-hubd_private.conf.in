@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2012-2014 LG Electronics, Inc.
+# Copyright (c) 2012-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,29 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
-description "Luna Private Hub service"
+description "Luna Private Hub Ready"
 
-start on stopped bootmisc
+start on ls-hubd-ready
 stop on started start_update
-emits ls-hubd_private-ready
+emits ls-hubd_public-ready
 
 # OOM should never kill ls-hubs
 oom score never
 
-# Comment this line out to suppress logs on the console
-#console output
-
-pre-start script
-	mkdir -p @WEBOS_INSTALL_WEBOS_LOCALSTATEDIR@/ls2/roles/prv @WEBOS_INSTALL_WEBOS_LOCALSTATEDIR@/ls2/roles/pub @WEBOS_INSTALL_WEBOS_LOCALSTATEDIR@/ls2/services/prv @WEBOS_INSTALL_WEBOS_LOCALSTATEDIR@/ls2/services/pub
-end script
-
 script
-	# Use centralized nice script
-	if [ -f /etc/init.d/webos-nicer.sh ]
-	then
-		. /etc/init.d/webos-nicer.sh
-	fi
-	exec $WEBOS_NICE @WEBOS_INSTALL_SBINDIR@/ls-hubd --conf @WEBOS_INSTALL_SYSCONFDIR@/luna-service2/ls-private.conf
+
+initctl emit ls-hubd_private-ready --no-wait || true
+
 end script

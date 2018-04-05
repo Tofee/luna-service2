@@ -1,41 +1,93 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
-
-#include <unistd.h>
-#include <fcntl.h>
-
-#include "error.h"
-#include "transport_utils.h"
 #include "transport_channel.h"
 
-void _LSTransportRemoveSendWatch(_LSTransportChannel *channel);
-void _LSTransportRemoveReceiveWatch(_LSTransportChannel *channel);
-void _LSTransportRemoveAcceptWatch(_LSTransportChannel *channel);
+#include "error.h"
+#include "transport.h"
+#include "transport_utils.h"
+#include "transport_client.h"
+
 
 /**
- * @defgroup LunaServiceTransportChannel
- * @ingroup LunaServiceTransport
- * @brief Transport channel
+ *******************************************************************************
+ * @brief Add a watch to a channel and attach it to the main context.
+ *
+ * @param  channel       IN  channel to watch
+ * @param  condition     IN  condition to watch
+ * @param  context       IN  main context
+ * @param  transport_cb  IN  callback when watch is triggered
+ * @param  user_data     IN  context passed to callback
+ * @param  destroy_cb    IN  callback when watch is destroyed
+ * @param  out_watch     OUT newly created watch
+ *******************************************************************************
  */
+static void
+AddWatch(_LSTransportChannel *channel, GIOCondition condition, GMainContext *context,
+         GIOFunc transport_cb, void *user_data, GDestroyNotify destroy_cb, GSource **out_watch)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(channel->channel != NULL);
+    LS_ASSERT(context != NULL);
+    LS_ASSERT(out_watch != NULL);
+    LS_ASSERT(*out_watch == NULL);
+
+    GSource *watch = g_io_create_watch(channel->channel, condition);
+
+    if (channel->priority != G_PRIORITY_DEFAULT)
+    {
+        g_source_set_priority(watch, channel->priority);
+    }
+
+    g_source_set_callback(watch, (GSourceFunc)transport_cb, user_data, destroy_cb);
+
+    /* we set this before attaching because once we call attach, we can potentially
+     * wake a separate thread running the mainloop associated with this context */
+    *out_watch = watch;
+
+    g_source_set_can_recurse(watch, true);
+    g_source_attach(watch, context);
+}
 
 /**
- * @addtogroup LunaServiceTransportChannel
+ *******************************************************************************
+ * @brief Remove a watch from a channel.
+ *
+ * @param  channel      IN      channel that watch is on
+ * @param  out_watch    IN/OUT  watch (set to NULL after destroying)
+ *******************************************************************************
+ */
+static void
+RemoveWatch(_LSTransportChannel *channel, GSource **out_watch)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(out_watch != NULL);
+    LS_ASSERT(*out_watch != NULL);
+
+    /* The user_data will be cleaned up by the GDestroyNotify callback */
+    g_source_destroy(*out_watch);
+    g_source_unref(*out_watch);
+    *out_watch = NULL;
+}
+
+
+/**
+ * @cond INTERNAL
+ * @defgroup LunaServiceTransportChannel Transport channel
+ * @ingroup LunaServiceTransport
  * @{
  */
 
@@ -43,7 +95,6 @@ void _LSTransportRemoveAcceptWatch(_LSTransportChannel *channel);
  *******************************************************************************
  * @brief Initialize a channel.
  *
- * @param  transport    IN  transport
  * @param  channel      IN  channel to initialize
  * @param  fd           IN  fd
  * @param  priority     IN  priority
@@ -53,17 +104,22 @@ void _LSTransportRemoveAcceptWatch(_LSTransportChannel *channel);
  *******************************************************************************
  */
 bool
-_LSTransportChannelInit(_LSTransport *transport, _LSTransportChannel *channel, int fd, int priority)
+_LSTransportChannelInit(_LSTransportChannel *channel, int fd, int priority)
 {
     LS_ASSERT(channel != NULL);
 
-    channel->transport = transport;
     channel->fd = fd;
     channel->priority = priority;
     channel->channel = g_io_channel_unix_new(fd);
     channel->send_watch = NULL;
     channel->recv_watch = NULL;
     channel->accept_watch = NULL;
+
+    if (pthread_mutex_init(&channel->send_watch_lock, NULL))
+    {
+        LOG_LS_ERROR(MSGID_LS_MUTEX_ERR, 0, "Could not initialize mutex");
+        return false;
+    }
 
     return true;
 }
@@ -82,17 +138,17 @@ _LSTransportChannelDeinit(_LSTransportChannel *channel)
 
     if (channel->send_watch)
     {
-        _LSTransportRemoveSendWatch(channel);
+        _LSTransportChannelRemoveSendWatch(channel);
     }
 
     if (channel->recv_watch)
     {
-        _LSTransportRemoveReceiveWatch(channel);
+        _LSTransportChannelRemoveReceiveWatch(channel);
     }
 
     if (channel->accept_watch)
     {
-        _LSTransportRemoveAcceptWatch(channel);
+        _LSTransportChannelRemoveAcceptWatch(channel);
     }
 
     if (channel->channel)
@@ -101,7 +157,8 @@ _LSTransportChannelDeinit(_LSTransportChannel *channel)
         channel->channel = NULL;
     }
 
-    channel->transport = NULL;
+    if (pthread_mutex_destroy(&channel->send_watch_lock))
+        LOG_LS_WARNING(MSGID_LS_MUTEX_ERR, 0, "Could not destroy mutex &channel->send_watch_lock");
 }
 
 /**
@@ -132,12 +189,11 @@ _LSTransportChannelClose(_LSTransportChannel *channel, bool flush)
 {
     LS_ASSERT(channel != NULL);
 
-    GIOStatus status;
     GError *err = NULL;
 
     if (channel->channel)
     {
-        status = g_io_channel_shutdown(channel->channel, flush, &err);
+        G_GNUC_UNUSED GIOStatus status = g_io_channel_shutdown(channel->channel, flush, &err);
 
         if (err != NULL)
         {
@@ -177,6 +233,147 @@ _LSTransportChannelSetPriority(_LSTransportChannel *channel, int priority)
     }
 
     channel->priority = priority;
+}
+
+
+/**
+ *******************************************************************************
+ * @brief Add a send watch to a channel.
+ *
+ * @param  channel  IN  channel
+ * @param  context  IN  main loop context
+ * @param  client   IN  client to pass to watch callback
+ *******************************************************************************
+ */
+void
+_LSTransportChannelAddSendWatch(_LSTransportChannel *channel, GMainContext *context, _LSTransportClient *client)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(context != NULL);
+
+    if (!channel->send_watch)
+    {
+        SEND_WATCH_LOCK(&channel->send_watch_lock);
+
+        if (!channel->send_watch)
+        {
+            LOG_LS_DEBUG("%s: channel: %p, context: %p, client: %p\n", __func__, channel, context, client);
+
+            _LSTransportClientRef(client);
+            AddWatch(channel, G_IO_OUT, context, _LSTransportSendClient, client, (GDestroyNotify) _LSTransportClientUnref, &channel->send_watch);
+        }
+
+        SEND_WATCH_UNLOCK(&channel->send_watch_lock);
+    }
+}
+
+/**
+ *******************************************************************************
+ * @brief Remove a send watch from a channel.
+ *
+ * @param  channel  IN  channel
+ *******************************************************************************
+ */
+void
+_LSTransportChannelRemoveSendWatch(_LSTransportChannel *channel)
+{
+    LS_ASSERT(channel != NULL);
+
+    LOG_LS_DEBUG("%s: channel: %p\n", __func__, channel);
+
+    if (channel->send_watch)
+    {
+        SEND_WATCH_LOCK(&channel->send_watch_lock);
+        RemoveWatch(channel, &channel->send_watch);
+        SEND_WATCH_UNLOCK(&channel->send_watch_lock);
+        /* client is unref'd by GDestroyNotify callback */
+    }
+}
+
+/**
+ *******************************************************************************
+ * @brief Add a receive watch to a channel.
+ *
+ * @param  channel  IN  channel
+ * @param  context  IN  main loop context
+ * @param  client   IN  client to pass to watch callback
+ *******************************************************************************
+ */
+void
+_LSTransportChannelAddReceiveWatch(_LSTransportChannel *channel, GMainContext *context, _LSTransportClient *client)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(context != NULL);
+
+    if (!channel->recv_watch)
+    {
+        LOG_LS_DEBUG("%s: channel: %p, context: %p, client: %p\n", __func__, channel, context, client);
+
+        _LSTransportClientRef(client);
+        AddWatch(channel, G_IO_IN | G_IO_ERR | G_IO_HUP, context,
+                 _LSTransportReceiveClient, client, (GDestroyNotify) _LSTransportClientUnref, &channel->recv_watch);
+    }
+}
+
+/**
+ *******************************************************************************
+ * @brief Remove a receive watch from a channel.
+ *
+ * @param  channel  IN  channel
+ *******************************************************************************
+ */
+void
+_LSTransportChannelRemoveReceiveWatch(_LSTransportChannel *channel)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(channel->recv_watch != NULL);
+
+    LOG_LS_DEBUG("%s: channel: %p\n", __func__, channel);
+
+    if (channel->recv_watch)
+    {
+        RemoveWatch(channel, &channel->recv_watch);
+        /* client is unref'd by GDestroyNotify callback */
+    }
+}
+
+/**
+ *******************************************************************************
+ * @brief Add an accept watch to a channel.
+ *
+ * @param  channel  IN  channel
+ * @param  context  IN  main loop context
+ * @param  user_data IN user data to pass to watch callback
+ *******************************************************************************
+ */
+void
+_LSTransportChannelAddAcceptWatch(_LSTransportChannel *channel, GMainContext *context, void *user_data)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(context != NULL);
+
+    LOG_LS_DEBUG("%s: channel: %p, context: %p, transport: %p\n", __func__, channel, context, user_data);
+
+    AddWatch(channel, G_IO_IN | G_IO_ERR | G_IO_HUP, context,
+             _LSTransportAcceptConnection, user_data, NULL, &channel->accept_watch);
+}
+
+/**
+ *******************************************************************************
+ * @brief Remove an accept watch from a channel.
+ *
+ * @param  channel  IN  channel
+ *******************************************************************************
+ */
+void
+_LSTransportChannelRemoveAcceptWatch(_LSTransportChannel *channel)
+{
+    LS_ASSERT(channel != NULL);
+    LS_ASSERT(channel->accept_watch != NULL);
+
+    LOG_LS_DEBUG("%s: channel: %p\n", __func__, channel);
+
+    RemoveWatch(channel, &channel->accept_watch);
 }
 
 bool
@@ -259,4 +456,7 @@ _LSTransportChannelRestoreBlockState(_LSTransportChannel *channel, const bool *p
     }
 }
 
-/* @} END OF LunaServiceTransportChannel */
+/**
+ * @} END OF LunaServiceTransportChannel
+ * @endcond
+ */

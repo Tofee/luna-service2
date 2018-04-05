@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
@@ -24,22 +22,20 @@
 #include <string>
 #include <chrono>
 #include <mutex>
-#include <condition_variable>
 #include <queue>
 #include <thread>
 #include <memory>
 
 #include <luna-service2/lunaservice.h>
 #include "message.hpp"
-
+#include "condition_variable.hpp"
 
 namespace LS {
 
 
 /**
  * @ingroup LunaServicePP
- * @brief This class provides ability to make call to service category methods
- * Controls lifetime of the call.
+ * @brief This class provides the ability to make a call to service category methods, it controls the lifetime of the call.
  * Call is canceled on object destroy.
  */
 class Call
@@ -48,13 +44,59 @@ class Call
 
 public:
 
-    Call();
+    Call()
+        : _token { LSMESSAGE_TOKEN_INVALID }
+        , _sh { nullptr }
+        , _single { false }
+        , _callCB { nullptr }
+        , _callCtx { nullptr }
+        , _context { new CallPtr(this) }
+    { }
 
-    ~Call();
+    /** @brief Destroy the call, and cancel the call if it is active
+      */
+    ~Call()
+    { cancel(); }
 
-    Call(Call &&other);
+    Call(Call &&other)
+        : _token { other._token }
+        , _sh { other._sh }
+        , _single { other._single }
+        , _callCB { other._callCB }
+        , _callCtx { other._callCtx }
+        , _context { std::move(other._context) }
+    {
+        *_context = this;
+        std::lock_guard < std::mutex > lockg { other._mutex };
+        other._token = LSMESSAGE_TOKEN_INVALID;
+        other._sh = nullptr;
+        other._callCB = nullptr;
+        other._callCtx = nullptr;
+        _queue = std::move(other._queue);
+    }
 
-    Call &operator=(Call &&other);
+    Call &operator=(Call &&other)
+    {
+        if (this != &other)
+        {
+            std::unique_lock < std::mutex > thisLock { _mutex, std::defer_lock };
+            std::unique_lock < std::mutex > thatLock { other._mutex, std::defer_lock };
+            std::lock(thisLock, thatLock);
+            cancel();
+            _token = other._token;
+            _sh = other._sh;
+            _callCB = other._callCB;
+            _callCtx = other._callCtx;
+            _context = std::move(other._context);
+            *_context = this;
+            _queue = std::move(other._queue);
+            other._token = LSMESSAGE_TOKEN_INVALID;
+            other._sh = nullptr;
+            other._callCB = nullptr;
+            other._callCtx = nullptr;
+        }
+        return *this;
+    }
 
     Call(const Call &) = delete;
     Call &operator=(const Call &) = delete;
@@ -63,43 +105,76 @@ public:
      * @brief Send a cancel message to service to end call session and
      * unregister any callback associated with call.
      */
-    void cancel();
+    void cancel()
+    {
+        if (isActive())
+        {
+            Error error;
+            if (LSCallCancel(_sh, _token, error.get()))
+                _token = LSMESSAGE_TOKEN_INVALID;
+            else
+                error.logError("LS_CANC_METH");
+        }
+    }
 
     /**
      * @brief Set timeout for a method call.
-     * The call will be canceled if no reply is received after the msTimeout milliseconds.
-     * @param msTimeout
-     * @return is success
+     * The call will be canceled if no reply is received after msTimeout milliseconds.
+     * @param msTimeout time after which method can be canceled
+     * @return The setTimeout method returns true if the timeout was successfully set for the call. The setTimeout returns false if the timeout could not be set for the call.
      */
-    bool setTimeout(int msTimeout) const;
+    bool setTimeout(int msTimeout) const
+    {
+        return isActive()
+            ? LSCallSetTimeout(_sh, _token, msTimeout, Error().get())
+            : false;
+    }
 
     /**
      * @brief Set callback to continue.
-     * The callback called for each message arrives.
-     * Replaces previous callback if exists.
-     * If internal queue already contains messages then callback
-     * to be called sequentially for every message in this function.
-     * @param callback
-     * @param context
+     * This is the callback that is called for each message that arrives. It replaces any previous callback if it exists. 
+     * If the internal queue already contains messages then the callback is called sequentially for every message in the queue.
+     * @param callback callback function
+     * @param context user data
      */
-    void continueWith(LSFilterFunc callback, void *context);
+    void continueWith(LSFilterFunc callback, void *context)
+    {
+        std::lock_guard < std::mutex > lockg { _mutex };
+        _callCB = callback;
+        _callCtx = context;
+        if (!_callCB)
+        {
+            return;
+        }
+
+        while (!_queue.empty())
+        {
+            (_callCB)(_sh, _queue.front().get(), _callCtx);
+            _queue.pop();
+        }
+    }
 
     /**
-     * Retrieve top message object from its queue.
-     * Waits for new messages if there is no one.
-     * It blocks execution until new message arrived.
-     * @note If continueWith were called then this call will wait infinitely
-     * because callback from continueWith will intercept all messages and keep message queue empty.
-     * @return message
+     * Retrieve a message object from the top of its queue.
+     * It waits for new messages if there is none. It blocks execution until a new message arrives.\n
+     * if msTimeout != 0 the call will be canceled if no reply is received after msTimeout milliseconds.
+     * @note If continueWith was called then this call will wait infinitely because callback
+     * from continueWith intercepts all messages and keeps the message queue empty.
+     * @param msTimeout time after which method can be canceled. If msTimeout == 0 message wasn't canceled.
+     * @return message. The message could be empty. Check for an empty message using an if (message) statement before processing the message.
      */
-    Message get();
+    Message get(unsigned long msTimeout = 0);
 
     /**
-     * Get with timeout
-     * @param msTimeout
-     * @return message. The message could be empty. Check it by if(message) before processing.
+     * @brief Return status of the call
+     * If a call is active, it is expected to receive replies and will be canceled in the destructor.\n
+     * If a call is not active, it is not expected to receive replies (for calls with one reply), and will not be cancelled in the destructor.
+     * @return true if a call is active, false if a call is not active
      */
-    Message get(unsigned long msTimeout);
+    bool isActive() const
+    {
+        return LSMESSAGE_TOKEN_INVALID != _token && _sh;
+    }
 
 private:
 
@@ -111,30 +186,35 @@ private:
     typedef Call *CallPtr;
     std::unique_ptr<CallPtr> _context;
     std::mutex _mutex;
-    std::condition_variable _cv;
     std::queue<Message> _queue;
-    GMainContext *_mainloopCtx;
     volatile bool _timeoutExpired;
+    LS::condition_variable _cv;
 
-    void cleanup();
+    void call(LSHandle *sh, const char *uri, const char *payload, bool oneReply, const char *appID = NULL)
+    {
+        Error error;
 
-    bool isActive() const;
+        _sh = sh;
+        _single = oneReply;
+        auto callFunc = _single ? LSCallFromApplicationOneReply : LSCallFromApplication;
 
-    void call(LSHandle *sh, const char *uri, const char *payload, bool oneReply, const char *appID = NULL);
+        if (!callFunc(_sh, uri, payload, appID, &replyCallback, _context.get(), &_token, error.get()))
+            throw error;
+    }
 
-    void callSignal(LSHandle *sh, const char *category, const char *methodName);
+    void callSignal(LSHandle *sh, const char *category, const char *methodName)
+    {
+        Error error;
 
-    bool isMainLoopThread() const;
+        _sh = sh;
+        _single = false;
 
-    Message tryGet();
+        if (!LSSignalCall(_sh, category, methodName, &replyCallback, _context.get(), &_token, error.get()))
+            throw error;
+    }
 
-    Message waitOnMainLoop();
-
-    Message waitTimeoutOnMainLoop(unsigned long msTimeout);
-
-    Message wait();
-
-    Message waitTimeout(unsigned long msTimeout);
+    Message wait(unsigned long msTimeout);
+    Message waitOnMainLoop(unsigned long msTimeout);
 
     bool handleReply(LSHandle *sh, LSMessage *reply);
 

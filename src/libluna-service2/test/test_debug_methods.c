@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -67,20 +65,8 @@ test_LSPrivateGetSubscriptions(TestData *fixture, gconstpointer user_data)
     g_assert(_LSPrivateGetSubscriptions(sh, msg, ctx));
     g_assert_cmpstr(fixture->lsmessagereply_payload, ==, "{\"returnValue\":true,\"subscriptions\":[]}");
 
-    // verify that no reply sent to non-monitor client
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        g_free(fixture->lsmessagereply_payload);
-        fixture->lsmessagereply_payload = NULL;
-
-        fixture->message_sender_service_name = "com.name.service";
-
-        g_assert(_LSPrivateGetSubscriptions(sh, msg, ctx));
-        g_assert_cmpstr(fixture->lsmessagereply_payload, ==, NULL);
-
-        exit(0);
-    }
-    g_test_trap_assert_passed();
+    g_free(fixture->lsmessagereply_payload);
+    fixture->lsmessagereply_payload = NULL;
 }
 
 static void
@@ -97,18 +83,8 @@ test_LSPrivateGetMallinfo(TestData *fixture, gconstpointer user_data)
     g_assert(g_str_has_prefix(fixture->lsmessagereply_payload, "{\"returnValue\":true,\"mallinfo\":{"));
 
     // verify that no reply sent to non-monitor client
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDERR))
-    {
-        g_free(fixture->lsmessagereply_payload);
-        fixture->lsmessagereply_payload = NULL;
-
-        fixture->message_sender_service_name = "com.name.service";
-
-        g_assert(_LSPrivateGetMallinfo(sh, msg, ctx));
-        g_assert_cmpstr(fixture->lsmessagereply_payload, ==, NULL);
-
-        exit(0);
-    }
+    g_free(fixture->lsmessagereply_payload);
+    fixture->lsmessagereply_payload = NULL;
 }
 
 static void

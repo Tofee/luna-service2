@@ -1,23 +1,22 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <string.h>
+#include <pbnjson.h>
 
 #include "transport.h"
 #include "transport_priv.h"
@@ -26,13 +25,9 @@
 //#include "transport_client.h"
 
 /**
- * @defgroup LunaServiceTransportClient
+ * @cond INTERNAL
+ * @defgroup LunaServiceTransportClient Transport client
  * @ingroup LunaServiceTransport
- * @brief Transport client
- */
-
-/**
- * @addtogroup LunaServiceTransportClient
  * @{
  */
 
@@ -45,42 +40,37 @@
  * @param  service_name     IN  client service name
  * @param  unique_name      IN  client unique name
  * @param  outgoing         IN  outgoing queue (NULL means allocate)
- * @param  initiator        IN  true if this is the end of the connection that initiated the connection
  *
  * @retval client on success
  * @retval NULL on failure
  *******************************************************************************
  */
 _LSTransportClient*
-_LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name, const char *unique_name, _LSTransportOutgoing *outgoing, bool initiator)
+_LSTransportClientNew(_LSTransport* transport, int fd, const char *service_name, const char *unique_name, _LSTransportOutgoing *outgoing)
 {
     _LSTransportClient *new_client = g_slice_new0(_LSTransportClient);
 
     //new_client->sh = sh;
     new_client->service_name = g_strdup(service_name);
     new_client->unique_name = g_strdup(unique_name);
+    new_client->app_id = NULL;
     new_client->transport = transport;
     new_client->state = _LSTransportClientStateInvalid;
-    new_client->is_sysmgr_app_proxy = false;
     new_client->is_dynamic = false;
-    new_client->initiator = initiator;
 
-    _LSTransportChannelInit(transport, &new_client->channel, fd, transport->source_priority);
+    if (!_LSTransportChannelInit(&new_client->channel, fd, transport->source_priority))
+        goto error;
 
     new_client->cred = _LSTransportCredNew();
 
-    /* Get pid, gid, and uid of client if we're local. It won't work for obvious
-     * reasons if it's a TCP/IP connection */
-    if (_LSTransportGetTransportType(transport) == _LSTransportTypeLocal)
-    {
-        LSError lserror;
-        LSErrorInit(&lserror);
+    /* Get pid, gid, and uid of client. */
+    LSError lserror;
+    LSErrorInit(&lserror);
 
-        if (!_LSTransportGetCredentials(fd, new_client->cred, &lserror))
-        {
-            LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
-            LSErrorFree(&lserror);
-        }
+    if (!_LSTransportGetCredentials(fd, new_client->cred, &lserror))
+    {
+        LOG_LSERROR(MSGID_LS_TRANSPORT_NETWORK_ERR, &lserror);
+        LSErrorFree(&lserror);
     }
 
     if (outgoing)
@@ -119,6 +109,9 @@ error:
     {
         _LSTransportIncomingFree(new_client->incoming);
     }
+    if (new_client->cred)
+        _LSTransportCredFree(new_client->cred);
+
     g_slice_free(_LSTransportClient, new_client);
 
     return NULL;
@@ -136,6 +129,8 @@ _LSTransportClientFree(_LSTransportClient* client)
 {
     g_free(client->unique_name);
     g_free(client->service_name);
+    g_free(client->app_id);
+    g_free(client->security_required_groups);
     _LSTransportCredFree(client->cred);
     _LSTransportOutgoingFree(client->outgoing);
     _LSTransportIncomingFree(client->incoming);
@@ -158,16 +153,15 @@ _LSTransportClientFree(_LSTransportClient* client)
  * @param  service_name     IN  client service name
  * @param  unique_name      IN  client unique name
  * @param  outgoing         IN  outgoing queue (NULL means allocate)
- * @param  initiator        IN  true if this is the end of the connection that initiated the connection
  *
  * @retval client on success
  * @retval NULL on failure
  *******************************************************************************
  */
 _LSTransportClient*
-_LSTransportClientNewRef(_LSTransport* transport, int fd, const char *service_name, const char *unique_name, _LSTransportOutgoing *outgoing, bool initiator)
+_LSTransportClientNewRef(_LSTransport* transport, int fd, const char *service_name, const char *unique_name, _LSTransportOutgoing *outgoing)
 {
-    _LSTransportClient *client = _LSTransportClientNew(transport, fd, service_name, unique_name, outgoing, initiator);
+    _LSTransportClient *client = _LSTransportClientNew(transport, fd, service_name, unique_name, outgoing);
     if (client)
     {
         client->ref = 1;
@@ -220,6 +214,29 @@ _LSTransportClientUnref(_LSTransportClient *client)
     }
 }
 
+void
+_LSTransportClientDetach(_LSTransportClient *client)
+{
+    LS_ASSERT(client);
+
+    _LSTransportChannel *channel = &client->channel;
+
+    if (channel->recv_watch)
+    {
+        _LSTransportChannelRemoveReceiveWatch(channel);
+    }
+
+    if (channel->send_watch)
+    {
+        _LSTransportChannelRemoveSendWatch(channel);
+    }
+
+    if (channel->accept_watch)
+    {
+        _LSTransportChannelRemoveAcceptWatch(channel);
+    }
+}
+
 /**
  *******************************************************************************
  * @brief Get a client's unique name.
@@ -239,13 +256,61 @@ _LSTransportClientGetUniqueName(const _LSTransportClient *client)
 
 /**
  *******************************************************************************
+ * @brief Set a client's unique name.
+ *
+ * @param  client   IN  client
+ * @param  unique_name IN unique name to remember
+ *
+ *******************************************************************************
+ */
+void _LSTransportClientSetUniqueName(_LSTransportClient *client, char *unique_name)
+{
+    LS_ASSERT(client != NULL);
+    g_free(client->unique_name);
+    client->unique_name = unique_name;
+}
+
+/**
+ *******************************************************************************
+ * @brief Get a client's application Id.
+ *
+ * @param  client   IN  client
+ *
+ * @retval  name on success
+ * @retval  NULL if client isn't associated with application Id
+ *******************************************************************************
+ */
+const char*
+_LSTransportClientGetApplicationId(const _LSTransportClient *client)
+{
+    LS_ASSERT(client != NULL);
+    return client->app_id;
+}
+
+/**
+ *******************************************************************************
+ * @brief Set a client's application Id.
+ *
+ * @param  client   IN  client
+ * @param  app_id IN application Id name to set
+ *
+ *******************************************************************************
+ */
+void _LSTransportClientSetApplicationId(_LSTransportClient *client, const char *app_id)
+{
+    LS_ASSERT(client != NULL);
+    g_free(client->app_id);
+    client->app_id = g_strdup(app_id);
+}
+
+/**
+ *******************************************************************************
  * @brief Get a client's service name.
  *
  * @param  client   IN  client
  *
  * @retval name on success
  * @retval NULL on failure
- *******************************************************************************
  */
 const char*
 _LSTransportClientGetServiceName(const _LSTransportClient *client)
@@ -295,4 +360,85 @@ _LSTransportClientGetCred(const _LSTransportClient *client)
     return client->cred;
 }
 
-/* @} END OF LunaServiceTransportClient */
+/**
+ *******************************************************************************
+ * @brief If service should accept inbound calls from the client.
+ *
+ * @param  client   IN  client
+ *
+ * @retval  true if allowed, otherwise false
+ *******************************************************************************
+ */
+bool _LSTransportClientAllowInboundCalls(const _LSTransportClient *client)
+{
+    return client->permissions & _LSClientAllowInbound;
+}
+
+/**
+ *******************************************************************************
+ * @brief If service is allowed to make calls to the client.
+ *
+ * @param  client   IN  client
+ *
+ * @retval  true if allowed, otherwise false
+ *******************************************************************************
+ */
+bool _LSTransportClientAllowOutboundCalls(const _LSTransportClient *client)
+{
+    return client->permissions & _LSClientAllowOutbound;
+}
+
+/**
+ * @brief  Initialize mask for required groups by client
+ *
+ * @param  client       IN  Client transport
+ * @param  groups_json  IN  JSON string - array of strings, a string - security group. Example:
+ *                          ["camera", "torch"]
+ *
+ * @retval true on success
+ */
+bool
+_LSTransportClientInitializeSecurityGroups(_LSTransportClient *client, const char *groups_json)
+{
+    LS_ASSERT(client);
+    LS_ASSERT(groups_json);
+
+    JSchemaInfo schemaInfo;
+    jschema_info_init(&schemaInfo, jschema_all(), NULL, NULL);
+
+    jvalue_ref jgroups = jdom_parse(j_str_to_buffer(groups_json, strlen(groups_json)), DOMOPT_NOOPT, &schemaInfo);
+    if (!jis_array(jgroups))
+    {
+        LOG_LS_ERROR(MSGID_LS_INVALID_JSON, 1,
+                     PMLOGKS("JSON", groups_json),
+                     "Fail to read JSON: %s. Not array\n", groups_json);
+        j_release(&jgroups);
+        return false;
+    }
+
+    size_t mask_size = client->transport->security_mask_size;
+    GHashTable *group_code_map = client->transport->group_code_map;
+
+    LSTransportBitmaskWord *mask = g_malloc0_n(mask_size, sizeof(LSTransportBitmaskWord));
+    ssize_t arr_sz = jarray_size(jgroups);
+    ssize_t i = 0;
+    for (; i < arr_sz; i++)
+    {
+        jvalue_ref jgroup = jarray_get(jgroups, i);
+        const char *group = jstring_get_fast(jgroup).m_str;
+
+        gpointer value = NULL;
+        if (g_hash_table_lookup_extended(group_code_map, group, NULL, &value))
+            BitMaskSetBit(mask, GPOINTER_TO_INT(value));
+    }
+
+    client->security_required_groups = mask;
+
+    j_release(&jgroups);
+    return true;
+}
+
+/**
+ * @} END OF LunaServiceTransportClient
+ * @endcond
+ */

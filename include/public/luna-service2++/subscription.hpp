@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
@@ -22,13 +20,14 @@
 #include <vector>
 #include <algorithm>
 
+#include "handle.hpp"
 #include "message.hpp"
 
 namespace LS {
 
 /**
  * @ingroup LunaServicePP
- * @brief Represent publishing point for a sender service
+ * @brief Represents a publishing point for a sender service.
  */
 class SubscriptionPoint
 {
@@ -39,11 +38,18 @@ class SubscriptionPoint
     friend class SubscriptionPoint;
 
     private:
-        SubscriptionItem(LS::Message _message,
-                         LS::SubscriptionPoint *_parent);
+        SubscriptionItem(Message _message, SubscriptionPoint *_parent)
+            : message { std::move(_message) }
+            , parent { _parent }
+            , statusToken { LSMESSAGE_TOKEN_INVALID }
+        { }
 
     public:
-        ~SubscriptionItem();
+        ~SubscriptionItem()
+        {
+            if (statusToken != LSMESSAGE_TOKEN_INVALID)
+                parent->cleanItem(this);
+        }
 
         SubscriptionItem(const SubscriptionItem &) = delete;
         SubscriptionItem &operator=(const SubscriptionItem &) = delete;
@@ -54,17 +60,27 @@ class SubscriptionPoint
         LS::Message message;
         LS::SubscriptionPoint *parent;
         LSMessageToken statusToken;
-
     };
 
 friend struct SubscriptionItem;
 
 public:
-    SubscriptionPoint() : SubscriptionPoint{nullptr} {}
+    SubscriptionPoint() : SubscriptionPoint { nullptr } { }
 
-    explicit SubscriptionPoint(Handle *service_handle);
+    explicit
+    SubscriptionPoint(Handle *service_handle)
+        : _service_handle { service_handle }
+    {
+        setCancelNotificationCallback();
+    }
 
-    ~SubscriptionPoint();
+    ~SubscriptionPoint()
+    {
+        unsetCancelNotificationCallback();
+
+        for (auto subscriber : _subs)
+            delete subscriber;
+    }
 
     SubscriptionPoint(const SubscriptionPoint &) = delete;
     SubscriptionPoint &operator=(const SubscriptionPoint &) = delete;
@@ -74,43 +90,62 @@ public:
     /**
      * Assign a publisher service
      */
-    void setServiceHandle(Handle *service_handle);
+    void setServiceHandle(Handle *service_handle)
+    {
+        _service_handle = service_handle;
+        setCancelNotificationCallback();
+    }
 
     /**
      * Process subscription message. Subscribe sender of the given message.
-     * @param message
-     * @return true if succeed to add the subscriber the sent the message
+     * @param message subscription message to process.
+     * @return Returns true if the method succeeds in adding the sender of the message as a subscriber
      */
-    bool subscribe(LS::Message &message);
+    bool subscribe(LS::Message &message) noexcept;
 
     /**
-     * Post to subscribers
-     * @param payload - posted data
-     * @return true replies were posted successfully
+     * Post payload to all subscribers
+     * @param payload posted data
+     * @return Returns true if replies were posted successfully
      */
-    bool post(const char *payload);
+    bool post(const char *payload) noexcept;
+
+    /**
+     * Returns number of service subscribers
+     * @retval size_t number of subscribers
+     */
+    std::vector<SubscriptionItem *>::size_type getSubscribersCount() const
+    {
+        return _subs.size();
+    }
 
 private:
     Handle *_service_handle;
     std::vector<SubscriptionItem *> _subs;
 
-    void setCancelNotificationCallback();
+    void setCancelNotificationCallback()
+    {
+        if (_service_handle)
+            LSCallCancelNotificationAdd(_service_handle->get(), subscriberCancelCB, this, Error().get());
+    }
 
-    void unsetCancelNotificationCallback();
-
+    void unsetCancelNotificationCallback()
+    {
+        if (_service_handle)
+            LSCallCancelNotificationRemove(_service_handle->get(), subscriberCancelCB, this, Error().get());
+    }
 
     static bool subscriberCancelCB(LSHandle *sh, const char *uniqueToken, void *context);
-
     static bool subscriberDownCB(LSHandle *sh, LSMessage *message, void *context);
+    static bool postSubscriptions(gpointer user_data);
+    static bool doSubscribe(gpointer user_data);
 
     void removeItem(const char *uniqueToken);
-
     void removeItem(SubscriptionItem *item, LSMessage *message);
 
     void cleanItem(SubscriptionItem *item);
 
-    void cleanup();
-
+    std::vector<LS::Message> getActiveMessages() const;
 };
 
 } // namespace LS;

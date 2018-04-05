@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,60 +12,50 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #include "subscription.hpp"
 #include "error.hpp"
-#include "handle.hpp"
-#include "payload.hpp"
+#include "json_payload.hpp"
+
+extern "C" {
+
+#include "message.h"
+
+}
+
 
 namespace LS {
 
-inline SubscriptionPoint::SubscriptionItem::SubscriptionItem(LS::Message _message,
-                                                             LS::SubscriptionPoint *_parent)
-    : message{ std::move(_message) },
-      parent{ _parent },
-      statusToken{ LSMESSAGE_TOKEN_INVALID }
-{
-}
 
-SubscriptionPoint::SubscriptionItem::~SubscriptionItem()
-{
-    if (statusToken != LSMESSAGE_TOKEN_INVALID)
-    {
-        parent->cleanItem(this);
-    }
-}
+std::mutex subscriptions_mutex;
 
-SubscriptionPoint::SubscriptionPoint(LS::Handle *service_handle): _service_handle {service_handle}
-{
-    setCancelNotificationCallback();
-}
 
-SubscriptionPoint::~SubscriptionPoint()
-{
-    unsetCancelNotificationCallback();
-    cleanup();
-}
-
-bool SubscriptionPoint::subscribe(LS::Message &message)
+bool SubscriptionPoint::subscribe(LS::Message &message) noexcept
 {
     if (!_service_handle)
         return false;
-    bool retVal {false};
+
+    // TODO: Lock appropriately to resolve race with cancel nofication callback.
+    if (!LSMessageIsConnected(message.get()))
+        return false;
+
+    bool retVal { false };
+
     try
     {
         std::unique_ptr<SubscriptionItem> item
-        {new SubscriptionItem(message, this)};
+        { new SubscriptionItem(message, this) };
 
         LS::Error error;
         LS::JSONPayload payload;
         payload.set("serviceName", message.getSender());
-        retVal = LSCall(_service_handle->get(), "palm://com.palm.bus/signal/registerServerStatus",
+        retVal = LSCall(_service_handle->get(), "luna://com.webos.service.bus/signal/registerServerStatus",
                         payload.getJSONString().c_str(), subscriberDownCB, item.get(),
                         &item->statusToken, error.get());
         if (retVal)
         {
+            std::lock_guard<std::mutex> lock(subscriptions_mutex);
             _subs.push_back(item.release());
         }
     }
@@ -78,46 +66,71 @@ bool SubscriptionPoint::subscribe(LS::Message &message)
     return retVal;
 }
 
-void SubscriptionPoint::setServiceHandle(LS::Handle *service_handle)
+struct PostData
 {
-    _service_handle = service_handle;
-    setCancelNotificationCallback();
-}
+    PostData(std::vector<LS::Message> &&messages, const char* payload)
+        : payload(payload)
+        , messages(messages)
+    {
+    }
 
-bool SubscriptionPoint::post(const char *payload)
+    std::string payload;
+    std::vector<LS::Message> messages;
+};
+
+bool SubscriptionPoint::postSubscriptions(gpointer user_data)
 {
-    if (!_service_handle)
-        return false;
-
+    PostData *data = static_cast<PostData*>(user_data);
     try
     {
-        for (auto subscriber: _subs)
+        for (auto &message: data->messages)
         {
-            subscriber->message.reply(*_service_handle, payload);
+            message.respond(data->payload.c_str());
         }
     }
     catch(LS::Error &e)
     {
         e.log(PmLogGetLibContext(), "LS_SUBS_POST_FAIL");
-        return false;
     }
     catch(...)
     {
+    }
+
+    // remove source from loop
+    return G_SOURCE_REMOVE;
+}
+
+// Subscription responses are sent from within the same thread that Luna
+// uses itself to avoid synchronization between other callbacks (like cancel).
+// To avoid race between subscription point, a copy of messages to be responded
+// is made and passed into the timeout callback. This also ensures a correct
+// snapshot of subscriptions is addressed in case of concurrently added
+// subscriptions.
+bool SubscriptionPoint::post(const char *payload) noexcept
+{
+    if (!_service_handle)
+        return false;
+
+    LS::Error error;
+    GMainContext *context = LSGmainGetContext(_service_handle->get(), error.get());
+    if (!context)
+    {
+        error.log(PmLogGetLibContext(), "LS_SUBS_POST_FAIL");
         return false;
     }
+
+    std::unique_ptr<PostData> data(new PostData(getActiveMessages(), payload));
+    GSource* source = g_timeout_source_new(0);
+    g_source_set_callback(source, (GSourceFunc)postSubscriptions, data.release(),
+    [](gpointer data)
+    {
+        delete static_cast<PostData*>(data);
+    });
+
+    g_source_attach(source, context);
+    g_source_unref(source);
+
     return true;
-}
-
-void SubscriptionPoint::setCancelNotificationCallback()
-{
-    if (_service_handle)
-        LSCallCancelNotificationAdd(_service_handle->get(), subscriberCancelCB, this, LS::Error().get());
-}
-
-void SubscriptionPoint::unsetCancelNotificationCallback()
-{
-    if (_service_handle)
-        LSCallCancelNotificationRemove(_service_handle->get(), subscriberCancelCB, this, LS::Error().get());
 }
 
 bool SubscriptionPoint::subscriberCancelCB(LSHandle *sh, const char *uniqueToken, void *context)
@@ -137,6 +150,8 @@ bool SubscriptionPoint::subscriberDownCB(LSHandle *sh, LSMessage *message, void 
 
 void SubscriptionPoint::removeItem(const char *uniqueToken)
 {
+    std::lock_guard<std::mutex> lock(subscriptions_mutex);
+
     SubscriptionItem *item {nullptr};
     auto it = std::find_if(_subs.begin(), _subs.end(),
                            [uniqueToken, &item](SubscriptionItem *_item)
@@ -165,6 +180,8 @@ void SubscriptionPoint::removeItem(LS::SubscriptionPoint::SubscriptionItem *item
     if (!reply.get("connected", isConnected) || isConnected)
         return;
 
+    std::lock_guard<std::mutex> lock(subscriptions_mutex);
+
     auto it = std::find_if(_subs.begin(), _subs.end(),
                            [item](SubscriptionItem *_item)
     {
@@ -183,17 +200,25 @@ void SubscriptionPoint::cleanItem(LS::SubscriptionPoint::SubscriptionItem *item)
     if (item->statusToken != LSMESSAGE_TOKEN_INVALID)
     {
         LS::Error error;
-        LSCallCancel(_service_handle->get(), item->statusToken, error.get());
-        item->statusToken = LSMESSAGE_TOKEN_INVALID;
+        if (LSCallCancel(_service_handle->get(), item->statusToken, error.get())) {
+            item->statusToken = LSMESSAGE_TOKEN_INVALID;
+        } else {
+            error.logError(MSGID_LS_CANT_CANCEL_METH);
+        }
     }
 }
 
-void SubscriptionPoint::cleanup()
+std::vector<LS::Message> SubscriptionPoint::getActiveMessages() const
 {
-    for (auto subscriber: _subs)
+    std::lock_guard<std::mutex> lock(subscriptions_mutex);
+
+    std::vector<LS::Message> messages;
+    for (auto item : _subs)
     {
-        delete subscriber;
+        if (item->statusToken != LSMESSAGE_TOKEN_INVALID)
+            messages.push_back(item->message);
     }
+    return messages;
 }
 
 } // namespace LS;

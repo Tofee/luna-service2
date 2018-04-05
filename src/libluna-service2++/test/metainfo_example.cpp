@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,46 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
-#include <pbnjson.hpp>
+#include <gtest/gtest.h>
 
-#include "luna-service2/lunaservice.hpp"
-#include "luna-service2/lunaservice-meta.h"
-
-#include "util.hpp"
-
-#include <iostream>
 #include <thread>
 #include <string>
 #include <cassert>
+#include <iostream>
+
+#define private public
+#include <pbnjson.hpp>
+#undef private
+
+#include <luna-service2/lunaservice.hpp>
+#include <luna-service2/lunaservice-meta.h>
+
+#include "test_util.hpp"
 
 // Service class which uses schemas for category methods
 class TestMetaInfoService: public LS::Handle
 {
 
 public:
-    TestMetaInfoService()
-    : LS::Handle{LS::registerService("com.palm.metainfo_example")},
-      _mainCtx{g_main_context_new()},
-      _mainLoop{g_main_loop_new(_mainCtx, false)},
-      _thread{[this](){g_main_loop_run(_mainLoop);}},
-      _category{"/testMethods"}
+    explicit TestMetaInfoService(GMainLoop* loop)
+        : LS::Handle{LS::registerService("com.palm.metainfo_example")}
+        , _category{"/testMethods"}
     {
         LS_CATEGORY_BEGIN(TestMetaInfoService, _category.c_str())
-            LS_CATEGORY_METHOD(testCall,LUNA_METHOD_FLAG_VALIDATE_IN)
+            LS_CATEGORY_METHOD(testCall, LUNA_METHOD_FLAG_VALIDATE_IN)
         LS_CATEGORY_END
 
-        attachToLoop(_mainLoop);
+        attachToLoop(loop);
     }
 
     ~TestMetaInfoService()
     {
-        g_main_loop_quit(_mainLoop);
-        _thread.join();
         detach();
-        g_main_loop_unref(_mainLoop);
-        g_main_context_unref(_mainCtx);
     }
 
     bool testCall(LSMessage &message)
@@ -65,15 +60,11 @@ public:
 
     void setCategorySchema(const std::string &schema)
     {
-        setCategoryDescription(_category.c_str(), fromJson(schema).get());
+        setCategoryDescription(_category.c_str(), pbnjson::JDomParser::fromString(schema).m_jval);
     }
 
 private:
-    GMainContext *_mainCtx;
-    GMainLoop *_mainLoop;
-    std::thread _thread;
     std::string _category;
-
 };
 
 namespace
@@ -218,27 +209,22 @@ std::string extSchema = R"json(
 
 static bool returnValue(const LS::Message &message)
 {
-    return fromJson(message.getPayload())["returnValue"].asBool();
+    return pbnjson::JDomParser::fromString(message.getPayload())["returnValue"].asBool();
 }
 
 // Example how to use JSON schema for call validation
-static void validationExample()
+TEST(TestMetaInfo, Validation)
 {
-    TestMetaInfoService service;
+    MainLoopT loop;
 
-    GMainContext * mainCtx = g_main_context_new();
-    GMainLoop * mainLoop = g_main_loop_new(mainCtx, false);
+    TestMetaInfoService service(loop.get());
     LS::Handle client = LS::registerService();
-    client.attachToLoop(mainLoop);
-
-    LS::Message resp;
-    LS::Call call;
+    client.attachToLoop(loop.get());
 
     // No validation schema for testCall
     // Call with empty payload - success
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall", "{}");
-    resp = call.get();
-    assert(returnValue(resp));
+    auto reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall", "{}").get();
+    ASSERT_TRUE(returnValue(reply));
 
 //! [call validation]
     // Set schema for testCall
@@ -247,19 +233,16 @@ static void validationExample()
     service.setCategorySchema(basicSchema);
 
     // Call with empty payload - fail call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall", "{}");
-    resp = call.get();
-    assert(!returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall", "{}").get();
+    ASSERT_TRUE(!returnValue(reply));
 
     // Call with invalid "id" value - fail call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall", R"({"id":-1})");
-    resp = call.get();
-    assert(!returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall", R"({"id":-1})").get();
+    ASSERT_TRUE(!returnValue(reply));
 
     // Call with valid "id" value - success call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall", R"({"id":1})");
-    resp = call.get();
-    assert(returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall", R"({"id":1})").get();
+    ASSERT_TRUE(returnValue(reply));
 
     // Set new schema for testCall
     // Mandatory parameters:
@@ -271,81 +254,75 @@ static void validationExample()
     service.setCategorySchema(extSchema);
 
     // Call without "sender" object - fail call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall", R"({"id":1})");
-    resp = call.get();
-    assert(!returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall", R"({"id":1})").get();
+    ASSERT_TRUE(!returnValue(reply));
 
     // Call testCall with invalid "sender" object - "name" is missing - fail call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall",
-        R"({"id":1, "sender": {"organization": "LGE"}})");
-    resp = call.get();
-    assert(!returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall",
+        R"({"id":1, "sender": {"organization": "LGE"}})").get();
+    ASSERT_TRUE(!returnValue(reply));
 
     // Call testCall with invalid "sender" object - added additional property - fail call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall",
-        R"({"id":1, "sender": {"name": "Test service", "addKey": "addValue"}})");
-    resp = call.get();
-    assert(!returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall",
+        R"({"id":1, "sender": {"name": "Test service", "addKey": "addValue"}})").get();
+    ASSERT_TRUE(!returnValue(reply));
 
     // Call testCall with valid "sender" object - success call validation
-    call = client.callOneReply("palm://com.palm.metainfo_example/testMethods/testCall",
-        R"({"id":1, "sender": {"name": "test", "organization": "LGE"}})");
-    resp = call.get();
-    assert(returnValue(resp));
+    reply = client.callOneReply("luna://com.palm.metainfo_example/testMethods/testCall",
+        R"({"id":1, "sender": {"name": "test", "organization": "LGE"}})").get();
+    ASSERT_TRUE(returnValue(reply));
 //! [call validation]
+
+    loop.stop();
 }
 
 // Example how to use JSON schema for category introspection
-static void introspectionExample()
+TEST(TestMetaInfo, Introspection)
 {
-    TestMetaInfoService service;
+    MainLoopT loop;
 
-    GMainContext * mainCtx = g_main_context_new();
-    GMainLoop * mainLoop = g_main_loop_new(mainCtx, false);
+    TestMetaInfoService service(loop.get());
     LS::Handle client = LS::registerService();
-    client.attachToLoop(mainLoop);
+    client.attachToLoop(loop.get());
 
 //! [category introspection]
     // Set schema for category
     service.setCategorySchema(extSchema);
 
     // Call category introspection information
-    auto call = client.callOneReply("palm://com.palm.metainfo_example/com/palm/luna/private/introspection",
-        R"({"type":"description"})");
-    auto resp = call.get();
-    assert(returnValue(resp));
-    JRef reply = fromJson(resp.getPayload());
-    assert(reply.hasKey("categories"));
+    auto reply = client.callOneReply("luna://com.palm.metainfo_example/com/palm/luna/private/introspection",
+        R"({"type":"description"})").get();
+    ASSERT_TRUE(returnValue(reply));
+
+    auto data = pbnjson::JDomParser::fromString(reply.getPayload());
+    ASSERT_TRUE(data.hasKey("categories"));
+
     // Retrieve categories
-    JRef cats = reply["categories"];
-    std::cout<<"Category: "<<(*cats.begin()).first.asString()<<std::endl;
+    auto cats = data["categories"];
+    std::cout << "Category: " << (*cats.children().begin()).first.asString() << std::endl;
+
     // Retrieve methods for first category
-    JRef methods{(*cats.begin()).second["methods"]};
+    auto methods = (*cats.children().begin()).second["methods"];
     // Iterate through methods and print assigned schemas
-    for (auto it = methods.begin(); it != methods.end(); ++it)
+    for (const auto &m : methods.children())
     {
-        std::cout<<" Method: "<<(*it).first.asString()<<std::endl;
-        JRef method{(*it).second};
-        assert(method.hasKey("call"));
-        std::cout<<"  Call schema: "<<toJson(method["call"])<<std::endl;
+        std::cout << " Method: " << m.first.asString() << std::endl;
+        auto method = m.second;
+        ASSERT_TRUE(method.hasKey("call"));
+        std::cout << "  Call schema: " << method["call"].stringify("  ") << std::endl;
 
         if (method.hasKey("firstReply"))
         {
-            std::cout<<"  First reply schema: "<<toJson(method["firstReply"])<<std::endl;
+            std::cout << "  First reply schema: " << method["firstReply"].stringify("  ") << std::endl;
         }
+
         if (method.hasKey("reply"))
         {
-            std::cout<<"  Reply schema: "<<toJson(method["reply"])<<std::endl;
+            std::cout << "  Reply schema: " << method["reply"].stringify("  ") << std::endl;
         }
 
     }
 //! [category introspection]
-}
 
-int main(int argc, char ** argv)
-{
-    validationExample();
-    introspectionExample();
-    return 0;
+    loop.stop();
 }
-

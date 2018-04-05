@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2008-2014 LG Electronics, Inc.
+# Copyright (c) 2008-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 2.8.7)
 project(luna-service2)
 
 include(webOS/webOS)
 
-webos_modules_init(1 0 0 QUALIFIER RC7)
-webos_component(3 9 5)
+webos_modules_init(1 6 1)
+webos_component(3 21 2)
 
 include(FindPkgConfig)
 
@@ -30,22 +28,36 @@ include_directories(src/libluna-service2)
 include_directories(include/public)
 include_directories(include/private)
 
-pkg_check_modules(GLIB2 REQUIRED glib-2.0)
+set(PRIVATE_INCLUDES ${CMAKE_SOURCE_DIR}/include/private)
+set(PUBLIC_INCLUDES ${CMAKE_SOURCE_DIR}/include/public)
+
+pkg_check_modules(GLIB2 REQUIRED glib-2.0>=2.32.1)
 include_directories(${GLIB2_INCLUDE_DIRS})
+link_directories(${GLIB2_LIBRARY_DIRS})
 webos_add_compiler_flags(ALL ${GLIB2_CFLAGS_OTHER})
 
 # check for pbnjson c library
-pkg_check_modules(PBNJSON_C REQUIRED pbnjson_c>=2.5.0)
+pkg_check_modules(PBNJSON_C REQUIRED pbnjson_c>=2.13.0)
 include_directories(${PBNJSON_C_INCLUDE_DIRS})
+link_directories(${PBNJSON_C_LIBRARY_DIRS})
 webos_add_compiler_flags(ALL ${PBNJSON_C_CFLAGS_OTHER})
+
+# check for pbnjson c++ library
+pkg_check_modules(PBNJSON_CXX REQUIRED pbnjson_cpp>=2.13.0)
+include_directories(${PBNJSON_CXX_INCLUDE_DIRS})
+link_directories(${PBNJSON_CXX_LIBRARY_DIRS})
+webos_add_compiler_flags(ALL ${PBNJSON_CXX_CFLAGS_OTHER})
 
 # check if we have PmLogLib
 pkg_check_modules(PMLOGLIB REQUIRED PmLogLib>=3.0.2)
 include_directories(${PMLOGLIB_INCLUDE_DIRS})
+link_directories(${PMLOGLIB_LIBRARY_DIRS})
 webos_add_compiler_flags(ALL ${PMLOGLIB_CFLAGS_OTHER})
 
 webos_machine_impl_dep()
 include(webOS/LegacyDefines)
+
+webos_include_install_paths()
 
 set(LS2_PERMS "")
 set(LS2_RESTRICTED "")
@@ -59,19 +71,19 @@ if(WEBOS_TARGET_MACHINE_IMPL STREQUAL hardware)
 	set(LS2_RESTRICTED RESTRICTED_PERMISSIONS)
 endif()
 
-# Enable asserts in development release builds
-if(NOT ${WEBOS_DISTRO_PRERELEASE} STREQUAL "")
-	webos_add_compiler_flags(RELEASE -UNDEBUG -DWEBOS_DISTRO_PRERELEASE_ASSERTS)
+if("${WEBOS_DISTRO_PRERELEASE}" STREQUAL "")
+	webos_add_compiler_flags(ALL -DWEBOS_MASS_PRODUCTION)
+	set(WEBOS_IS_PRERELEASE OFF)
+else()
+	# Enable asserts in development release builds
+	webos_add_compiler_flags(ALL -UNDEBUG)
+	set(WEBOS_IS_PRERELEASE ON)
 endif()
 
-# TODO: Is there a better way than setting all the flags (i.e., built in support)?
-if(USE_GCOV)
-	message("Building with gcov support")
-	webos_add_compiler_flags(ALL -fprofile-arcs -ftest-coverage)
-	webos_add_linker_options(ALL -lgcov -fprofile-arcs)
-endif()
-
-webos_add_compiler_flags(ALL -Wall)
+# Next few flags will be enabled by default for pre-release build
+set(SECURITY_HACKS_ENABLED ${WEBOS_IS_PRERELEASE} CACHE BOOL "Turn OFF to disable security hacks")
+set(LS_VALIDATE_REPLIES ${WEBOS_IS_PRERELEASE} CACHE BOOL "Turn OFF to disable replies validation")
+set(LS_VALIDATE_CONF ${WEBOS_IS_PRERELEASE} CACHE BOOL "Turn OFF to disable configuration files validation")
 
 set(WEBOS_USE_WERROR FALSE CACHE BOOL "Set to TRUE to enable -Werror")
 if(WEBOS_USE_WERROR)
@@ -85,17 +97,51 @@ if(WEBOS_USE_WERROR)
 	                        )
 endif()
 
-# Enable security by default
-IF(NOT DEFINED WEBOS_LS2_SECURE)
-	SET(WEBOS_LS2_SECURE True)
-ENDIF(NOT DEFINED WEBOS_LS2_SECURE)
+set(WEBOS_GCOVR_REPORT LS2_INVALID_PATH CACHE FILEPATH
+	"Path to the previous gcovr coverage result. Set to any value if you need coverage target")
+
+if(WEBOS_USE_GCOV OR (NOT WEBOS_GCOVR_REPORT STREQUAL LS2_INVALID_PATH))
+	message(STATUS "Building with gcov support")
+
+	# Build unit-tests, to test coverage
+	set(WEBOS_CONFIG_BUILD_TESTS TRUE CACHE BOOL "Unit-tests were enabled to test coverage" FORCE)
+
+	webos_add_compiler_flags(ALL --coverage)
+	webos_add_linker_options(ALL -lgcov)
+
+	if(WEBOS_GCOVR_REPORT)
+		add_custom_target(coverage ${CMAKE_BINARY_DIR}/coverage
+		                  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
+		find_program(GCOV_PATH gcov)
+		if(NOT GCOV_PATH)
+			message(FATAL_ERROR "gcov not found. Install gcov, to use 'coverage' target")
+		endif()
+
+		find_program(GCOVR_PATH gcovr)
+		if(NOT GCOVR_PATH)
+			message(FATAL_ERROR "gcovr not found. Install gcovr, to use 'coverage' target")
+		endif()
+	endif()
+endif()
 
 set(WEBOS_CONFIG_BUILD_TESTS FALSE CACHE BOOL "Set to TRUE to enable tests compilation")
 if (WEBOS_CONFIG_BUILD_TESTS)
 	set(MEMORYCHECK_COMMAND_OPTIONS "--tool=memcheck --leak-check=full --trace-children=yes")
 	set(MEMORYCHECK_SUPPRESSIONS_FILE "${CMAKE_SOURCE_DIR}/valgrind.supp")
 	include(CTest)
+
+	webos_use_gtest()
+	add_subdirectory(files/test)
+	include_directories(include/private/tests)
+	include_directories(${WEBOS_GTEST_INCLUDES})
+
+	add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E 'integration|test_clock|test_timersource')
+	add_custom_target(check-security COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R 'security')
 endif()
+
+# Use PmLogLib
+webos_add_compiler_flags(ALL -DUSE_PMLOG_DECLARATION)
 
 # Debug definitions
 webos_add_compiler_flags(ALL -DMEMCHECK -DLSHANDLE_CHECK)
@@ -103,9 +149,11 @@ webos_add_compiler_flags(ALL -DMEMCHECK -DLSHANDLE_CHECK)
 # Specifying this causes "inline function '<function>' declared but never defined" errors.
 # webos_add_compiler_flags(ALL -std=c99)
 
-# Turn on all warnings except deprecated declarations and make them into errors
-webos_add_compiler_flags(ALL -Wall -Wno-deprecated-declarations)
+# Turn on all warnings
+webos_add_compiler_flags(ALL -Wall -Werror=switch)
 
+# Enable security compatibility layer for public/private emulation.
+webos_add_compiler_flags(ALL -DSECURITY_COMPATIBILITY)
 
 # Specify which symbols are to be exported
 # TODO: Create this
@@ -122,11 +170,17 @@ add_subdirectory(src/libluna-service2++)
 add_subdirectory(src/ls-hubd)
 add_subdirectory(src/ls-monitor)
 add_subdirectory(src/luna-send)
-add_subdirectory(src/luna-helper)
 add_subdirectory(files/conf)
 
-webos_build_pkgconfig()
-webos_config_build_doxygen(doc Doxyfile)
+webos_build_pkgconfig(files/pkgconfig/${CMAKE_PROJECT_NAME})
+webos_build_pkgconfig(files/pkgconfig/${CMAKE_PROJECT_NAME}++)
+
+if(WEBOS_CONFIG_BUILD_DOCS)
+	add_subdirectory(doc)
+else()
+	message(STATUS "Skipping document generation")
+endif()
+
 webos_build_system_bus_files()
 
 install(DIRECTORY files/schema/
@@ -147,5 +201,3 @@ install(PROGRAMS ${LS-CONTROL} DESTINATION ${WEBOS_INSTALL_SBINDIR} ${LS2_PERMS}
 # files for ls-monitor and luna-send.
 install(DIRECTORY DESTINATION ${WEBOS_INSTALL_SYSBUS_PRVSERVICESDIR})
 install(DIRECTORY DESTINATION ${WEBOS_INSTALL_SYSBUS_PUBSERVICESDIR})
-
-add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E 'integration|test_clock|test_timersource')

@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include "debug_methods.h"
@@ -22,10 +20,10 @@
 #include "base.h"
 #include "category.h"
 #include "simple_pbnjson.h"
+#include "transport_priv.h"
 
 #ifdef MALLOC_DEBUG
 #include <malloc.h>
-#define __USE_GNU
 #include <dlfcn.h>
 #endif
 #include <pthread.h>
@@ -38,19 +36,6 @@ _LSPrivateGetSubscriptions(LSHandle* sh, LSMessage *message, void *ctx)
 {
     LSError lserror;
     LSErrorInit(&lserror);
-
-    const char *sender = LSMessageGetSenderServiceName(message);
-
-    if ( !sender ||
-         ( (strcmp(sender, MONITOR_NAME) != 0) && (strcmp(sender, MONITOR_NAME_PUB) != 0)) )
-    {
-        LOG_LS_WARNING(MSGID_LS_DEBG_NOT_SUBSCRIBED, 1,
-                       PMLOGKS("APP_ID", sender),
-                       "Subscription debug method not called by monitor;"
-                       " ignoring (service name: %s, unique_name: %s)",
-                       sender, LSMessageGetSender(message));
-        return true;
-    }
 
     jvalue_ref ret_obj = NULL;
     bool json_ret = _LSSubscriptionGetJson(sh, &ret_obj, &lserror);
@@ -93,19 +78,6 @@ _LSPrivateGetMallinfo(LSHandle* sh, LSMessage *message, void *ctx)
     jvalue_ref slot_h_obj = NULL;
     jvalue_ref slot_i_obj = NULL;
     jvalue_ref slot_j_obj = NULL;
-
-    const char *sender = LSMessageGetSenderServiceName(message);
-
-    if ( !sender ||
-         ( (strcmp(sender, MONITOR_NAME) != 0) && (strcmp(sender, MONITOR_NAME_PUB) != 0)) )
-    {
-        LOG_LS_WARNING(MSGID_LS_MSG_ERR, 1,
-                       PMLOGKS("APP_ID", sender),
-                       "Mallinfo debug method not called by monitor;"
-                       " ignoring (service name: %s, unique_name: %s)",
-                       sender, LSMessageGetSender(message));
-        return true;
-    }
 
     ret_obj = jobject_create();
     if (ret_obj == NULL) goto error;
@@ -288,18 +260,15 @@ error:
 #endif  /* MALLOC_DEBUG */
 
 #ifdef INTROSPECTION_DEBUG
-static jvalue_ref
-build_categories_flat(LSHandle *sh)
+static void
+build_categories_flat(LSHandle *sh, jvalue_ref ret_obj)
 {
     GHashTableIter iter_category, iter_element;
     gpointer name_category, table_category, name_element, callback;
     struct LSCategoryTable *pTable = NULL;
 
-    jvalue_ref ret_obj = NULL;
     jvalue_ref category_obj = NULL;
     jvalue_ref element_obj = NULL;
-
-    ret_obj = jobject_create();
 
     g_hash_table_iter_init(&iter_category, sh->tableHandlers);
     while (g_hash_table_iter_next(&iter_category, &name_category, &table_category))
@@ -309,7 +278,14 @@ build_categories_flat(LSHandle *sh)
             continue;
 
         pTable = (struct LSCategoryTable *)table_category;
-        category_obj = jobject_create();
+        category_obj = jobject_get(ret_obj, j_cstr_to_buffer(name_category));
+        if (!jis_valid(category_obj))
+        {
+            category_obj = jobject_create();
+            jobject_put(ret_obj,
+                        jstring_create_copy(j_cstr_to_buffer(name_category)),
+                        category_obj);
+        }
 
         // methods
         g_hash_table_iter_init(&iter_element, pTable->methods);
@@ -330,19 +306,12 @@ build_categories_flat(LSHandle *sh)
                         jstring_create_copy(j_cstr_to_buffer(name_element)),
                         element_obj);
         }
-
-        jobject_put(ret_obj,
-                    jstring_create_copy(j_cstr_to_buffer(name_category)),
-                    category_obj);
     }
-    return ret_obj;
 }
 
-static jvalue_ref
-build_categories_description(LSHandle *sh)
+static void
+build_categories_description(LSHandle *sh, jvalue_ref categories)
 {
-    jvalue_ref categories = jobject_create();
-
     GHashTableIter iter_category;
     const char *category_name;
     struct LSCategoryTable *category_table;
@@ -359,32 +328,43 @@ build_categories_description(LSHandle *sh)
          *       to create a copy
          */
 
-        jvalue_ref entry_methods = jobject_create();
         jvalue_ref description = category_table->description;
         jvalue_ref methods;
+
         if (description == NULL)
         {
             /* ok, lets generate from scratch */
-            methods = NULL;
-
-            jobject_put(categories,
-                        jstring_create_nocopy(j_cstr_to_buffer(category_name)),
-                        jobject_create_var(
-                            jkeyval( J_CSTR_TO_JVAL("methods"), entry_methods ),
-                            J_END_OBJ_DECL
-                        ));
+            methods = jinvalid();
         }
         else
         {
             methods = jobject_get(description, J_CSTR_TO_BUF("methods"));
             LS_ASSERT(jis_valid(methods));
+        }
 
-            jvalue_ref category_entry = jvalue_shallow(description);
+        jvalue_ref entry_methods = jobject_get_nested(categories, category_name, "methods", NULL);
+        if (!jis_valid(entry_methods))
+        {
+            entry_methods = jobject_create();
 
-            (void) jobject_remove(category_entry, J_CSTR_TO_BUF("methods"));
-            jobject_put(category_entry,  J_CSTR_TO_JVAL("methods"), entry_methods);
+            if (description == NULL)
+            {
+                jobject_put(categories,
+                            jstring_create_nocopy(j_cstr_to_buffer(category_name)),
+                            jobject_create_var(
+                                jkeyval( J_CSTR_TO_JVAL("methods"), entry_methods ),
+                                J_END_OBJ_DECL
+                            ));
+            }
+            else
+            {
+                jvalue_ref category_entry = jvalue_shallow(description);
 
-            jobject_put(categories, j_cstr_to_jval(category_name), category_entry);
+                (void) jobject_remove(category_entry, J_CSTR_TO_BUF("methods"));
+                jobject_put(category_entry,  J_CSTR_TO_JVAL("methods"), entry_methods);
+
+                jobject_put(categories, j_cstr_to_jval(category_name), category_entry);
+            }
         }
 
         GHashTableIter iter_method;
@@ -401,19 +381,47 @@ build_categories_description(LSHandle *sh)
             }
             raw_buffer key = j_cstr_to_buffer(method_name);
             jvalue_ref method_descr;
-            if (jobject_get_exists(methods, key, &method_descr))
+            if (!jobject_get_exists(entry_methods, key, &method_descr))
             {
-                jobject_set(entry_methods, key, method_descr);
+                if (jobject_get_exists(methods, key, &method_descr))
+                {
+                    method_descr = jvalue_shallow(method_descr);
+                }
+                else
+                {
+                    /* we'll re-use single empty object for all such entires */
+                    method_descr = jobject_create();
+                }
+                jobject_put(entry_methods, jstring_create_nocopy(key), method_descr);
+            }
+
+            jvalue_ref provides;
+            if (! jobject_get_exists(method_descr, J_CSTR_TO_BUF("provides"), &provides))
+            {
+                jobject_put(method_descr,
+                    J_CSTR_TO_JVAL("provides"),
+                    LSTransportGetGroupsFromMask(sh->transport, method_entry->security_provided_groups)
+                );
             }
             else
             {
-                /* we'll re-use single empty object for all such entires */
-                jobject_put(entry_methods, jstring_create_nocopy(key), jobject_create());
+                /* There were already some provides in the array. Thus we have to merge in, filtering out the duplicates */
+                jvalue_ref new_groups = LSTransportGetGroupsFromMask(sh->transport, method_entry->security_provided_groups);
+                ssize_t orig_size = jarray_size(provides);
+                for (ssize_t i = 0; i != jarray_size(new_groups); ++i)
+                {
+                    ssize_t j;
+                    for (j = 0; j != orig_size; ++j)
+                    {
+                        if (jvalue_equal(jarray_get(provides, j), jarray_get(new_groups, i)))
+                            break;
+                    }
+                    if (j == orig_size)
+                        jarray_append(provides, jvalue_copy(jarray_get(new_groups, i)));
+                }
             }
         }
     }
-
-    return categories;
 }
 
 static jschema_ref introspection_params_schema;
@@ -434,36 +442,43 @@ static jschema_ref get_introspection_params_schema()
 bool
 _LSPrivateInrospection(LSHandle* sh, LSMessage *message, void *ctx)
 {
-    LSError lserror;
-    LSErrorInit(&lserror);
-
     jvalue_ref reply;
-
-    // parse params
-    struct JErrorCallbacks errorCallbacks;
-    JSchemaInfo schemaInfo;
-
-    SetLSErrorCallbacks(&errorCallbacks, &lserror);
-
-    jschema_info_init(&schemaInfo, get_introspection_params_schema(), NULL, &errorCallbacks);
-    jvalue_ref params = jdom_parse(j_cstr_to_buffer(LSMessageGetPayload(message)),
-                                   DOMOPT_NOOPT, &schemaInfo);
+    jerror *error = NULL;
+    jvalue_ref params =
+            jdom_create(j_cstr_to_buffer(LSMessageGetPayload(message)), get_introspection_params_schema(), &error);
 
     if (!jis_valid(params))
     {
-        LOG_LSERROR(MSGID_LS_INVALID_JSON, &lserror);
+        char buffer[256];
+        jerror_to_string(error, buffer, sizeof(buffer));
+
         reply = jobject_create_var(
             jkeyval( J_CSTR_TO_JVAL("returnValue"), jboolean_create(false) ),
-            jkeyval( J_CSTR_TO_JVAL("errorText"), jstring_create(lserror.message) ),
+            jkeyval( J_CSTR_TO_JVAL("errorText"), jstring_create(buffer) ),
             J_END_OBJ_DECL
         );
-        LSErrorInit(&lserror); /* re-init it back */
+
+        jerror_free(error);
     }
     else if (jstr_eq_cstr(jobject_get(params, J_CSTR_TO_BUF("type")), "description"))
     {
+        jvalue_ref categories = jobject_create();
+        build_categories_description(sh, categories);
+
+        /* If the request came from through a private (universal) handle,
+         * we should also check the public handle, and combine results
+         * from both of the handles
+         */
+        if (sh == sh->transport->back_sh[false])
+        {
+            LSHandle *pub_handle = sh->transport->back_sh[true];
+            if (pub_handle)
+                build_categories_description(pub_handle, categories);
+        }
+
         reply = jobject_create_var(
             jkeyval( J_CSTR_TO_JVAL("returnValue"), jboolean_create(true) ),
-            jkeyval( J_CSTR_TO_JVAL("categories"), build_categories_description(sh) ),
+            jkeyval( J_CSTR_TO_JVAL("categories"), categories),
             J_END_OBJ_DECL
         );
     }
@@ -472,8 +487,23 @@ _LSPrivateInrospection(LSHandle* sh, LSMessage *message, void *ctx)
         /* FIXME: for compatibility reasons this were kept as-is (without
          *        supplying answer with returnValue indicator)
          */
-        reply = build_categories_flat(sh);
+        reply = jobject_create();
+        build_categories_flat(sh, reply);
+
+        /* If the request came from through a private (universal) handle,
+         * we should also check the public handle, and combine results
+         * from both of the handles
+         */
+        if (sh == sh->transport->back_sh[false])
+        {
+            LSHandle *pub_handle = sh->transport->back_sh[true];
+            if (pub_handle)
+                build_categories_flat(pub_handle, reply);
+        }
     }
+
+    LSError lserror;
+    LSErrorInit(&lserror);
 
     bool reply_ret = LSMessageReply(sh, message, jvalue_tostring_simple(reply), &lserror);
     if (!reply_ret)

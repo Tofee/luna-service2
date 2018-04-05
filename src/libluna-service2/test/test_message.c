@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -48,13 +46,18 @@ typedef struct TestData
 } TestData;
 
 static TestData *test_data = NULL;
+static LSHandle handle = {};
 
 static void
 test_setup(TestData *fixture, gconstpointer user_data)
 {
     test_data = fixture;
 
-    fixture->transport_msg = GINT_TO_POINTER(1);
+    static _LSTransportMessageRaw transport_message_raw = {};
+    static _LSTransportMessage transport_message = {
+            .raw = &transport_message_raw,
+        };
+    fixture->transport_msg = &transport_message;
     fixture->transport_msg_ref_call_count = 0;
     fixture->transport_msg_method = NULL;
     fixture->transport_msg_category = NULL;
@@ -66,7 +69,7 @@ test_setup(TestData *fixture, gconstpointer user_data)
     fixture->transport_msg_type = _LSTransportMessageTypeUnknown;
     fixture->transport_msg_payload = NULL;
 
-    fixture->sh = GINT_TO_POINTER(2);
+    fixture->sh = &handle;
 
     fixture->msg = _LSMessageNewRef(fixture->transport_msg, fixture->sh);
 }
@@ -93,7 +96,7 @@ test_LSMessage(TestData *fixture, gconstpointer user_data)
     g_assert_cmpint(fixture->transport_msg_ref_call_count, ==, 1);
 
     // test LSMessageGetConnection
-    g_assert_cmpint(GPOINTER_TO_INT(LSMessageGetConnection(msg)), ==, 2);
+    g_assert(LSMessageGetConnection(msg) == &handle);
 
     // test LSMessageRef,LSMessageUnref
     LSMessageRef(msg);
@@ -130,7 +133,8 @@ test_LSMessageIsPublic(TestData *fixture, gconstpointer user_data)
 static void
 test_LSMessagePrint(TestData *fixture, gconstpointer user_data)
 {
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDOUT))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         fixture->msg->category = "a";
         fixture->msg->method = "b";
@@ -138,7 +142,9 @@ test_LSMessagePrint(TestData *fixture, gconstpointer user_data)
         LSMessagePrint(fixture->msg, stdout);
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_stdout("a/b <c>\n");
+#endif
 }
 
 static void
@@ -228,7 +234,9 @@ test_LSMessageGetPayload(TestData *fixture, gconstpointer user_data)
 {
     g_assert_cmpstr(NULL, ==, LSMessageGetPayload(fixture->msg));
 
-    fixture->transport_msg_payload = "a";
+    fixture->msg->payload = "a";
+    _LSTransportMessageSetType(fixture->msg->transport_msg, _LSTransportMessageTypeUnknown);
+
     g_assert_cmpstr(LSMessageGetPayload(fixture->msg), ==, "a");
 }
 
@@ -301,6 +309,13 @@ test_LSMessageGetKind(TestData *fixture, gconstpointer user_data)
 }
 
 /* Mocks **********************************************************************/
+
+const char*
+LSHandleGetName(LSHandle *sh)
+{
+    (void)sh;
+    return NULL;
+}
 
 _LSTransportMessage *
 _LSTransportMessageRef(_LSTransportMessage *message)
@@ -375,7 +390,8 @@ _LSTransportMessageGetType(const _LSTransportMessage *message)
 }
 
 bool
-_LSTransportSendReply(const _LSTransportMessage *message, const char *payload, LSError *lserror)
+_LSTransportSendReplyString(const _LSTransportMessage *replyTo,
+                            _LSTransportMessageType type, const char* string, LSError *lserror)
 {
     return true;
 }

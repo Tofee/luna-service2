@@ -1,21 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
-
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 /**
  * GTimerSource - a source needed because the typical GSources do not have necessary features.
@@ -33,6 +30,8 @@
 #include "timersource.h"
 #include "clock.h"
 #include "log.h"
+
+/** @cond INTERNAL */
 
 struct _GTimerSource
 {
@@ -178,12 +177,15 @@ g_timer_source_dispatch(GSource *source,
 /** Public Functions */
 
 /**
-* @brief A create a timer with 100 ms resolution.
-*
-* @param  interval_ms
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief A create a timer with 100 ms resolution.
+ *
+ * @param interval_ms
+ * @param granularity_ms
+ *
+ * @retval Newly created timesource
+ *******************************************************************************
+ */
 GTimerSource *
 g_timer_source_new(guint interval_ms, guint granularity_ms)
 {
@@ -227,12 +229,6 @@ g_timer_source_new_seconds(guint interval_sec)
 }
 
 void
-g_timer_source_set_interval_seconds(GTimerSource *tsource, guint interval_sec, gboolean from_poll)
-{
-    g_timer_source_set_interval(tsource, interval_sec * 1000, from_poll);
-}
-
-void
 g_timer_source_set_interval(GTimerSource *tsource, guint interval_ms, gboolean from_poll)
 {
     GTimeVal now;
@@ -262,4 +258,4 @@ g_timer_source_get_interval_ms(GTimerSource *tsource)
     return tsource->interval_ms;
 }
 
-
+/** @endcond */

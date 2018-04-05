@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
@@ -36,9 +34,22 @@ public:
 
     ~Error() noexcept { LSErrorFree(&_error); }
 
-    Error(Error &&other);
+    Error(Error &&other) noexcept
+    {
+        memcpy(&_error, &other._error, sizeof(_error));
+        LSErrorInit(&other._error);
+    }
 
-    Error &operator=(Error &&other);
+    Error &operator=(Error &&other)
+    {
+        if (this != &other)
+        {
+            LSErrorFree(&_error);
+            memcpy(&_error, &other._error, sizeof(_error));
+            LSErrorInit(&other._error);
+        }
+        return *this;
+    }
 
     // non-copyable
     Error(const Error &) = delete;
@@ -49,10 +60,15 @@ public:
     LSError *operator->() { return &_error; }
     const LSError *operator->() const { return &_error; }
 
+    operator LSError* () { return &_error; }
+
     /**
+     * @brief Get text representation of error
+     *
      * @return error text message
      */
-    const char *what() const noexcept;
+    const char *what() const noexcept
+    { return _error.message; }
 
     bool isSet() const
     {
@@ -64,15 +80,27 @@ public:
         LSErrorPrint(const_cast<LSError*>(&_error), out);
     }
 
+#ifdef USE_PMLOG_DECLARATION
     void log(PmLogContext context, const char *message_id)
     {
         LSErrorLog(context, message_id, &_error);
+    }
+#endif
+
+    void logError(const char *message_id)
+    {
+        LSErrorLogDefault(message_id, &_error);
     }
 
 private:
     LSError _error;
 
-    friend std::ostream &operator<<(std::ostream &os, const Error &error);
+    friend inline std::ostream &operator<<(std::ostream &os, const Error &error)
+    {
+        return os << "LUNASERVICE ERROR " << error->error_code << ": "
+            << error->message << " (" << error->func << " @ " << error->file << ":"
+            << error->line << ")";
+    }
 };
 
 } //namespace LS;

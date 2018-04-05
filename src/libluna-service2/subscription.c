@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <glib.h>
@@ -28,23 +26,31 @@
 #include "subscription.h"
 
 /**
+ * @cond INTERNAL
  * @addtogroup LunaServiceInternals
  * @{
  */
 
 /**
-* @brief Internal representation of a subscription list.
-*/
+ *******************************************************************************
+ * @brief Internal representation of a subscription list.
+ *******************************************************************************
+ */
 typedef GPtrArray _SubList;
 
 /**
-* @brief Internal representation of a subscriber cancel notification callback list.
-*/
+ *******************************************************************************
+ * @brief Internal representation of a subscriber cancel notification callback
+ *        list.
+ *******************************************************************************
+ */
 typedef GPtrArray _CancelNotifyCallbackList;
 
 /**
-* @brief One subscription.
-*/
+ *******************************************************************************
+ * @brief One subscription.
+ *******************************************************************************
+ */
 typedef struct _Subscription
 {
     LSMessage       *message;
@@ -55,8 +61,10 @@ typedef struct _Subscription
 } _Subscription;
 
 /**
-* @brief Internal struct that contains all the subscriptions.
-*/
+ *******************************************************************************
+ * @brief Internal struct that contains all the subscriptions.
+ *******************************************************************************
+ */
 struct _Catalog {
 
     pthread_mutex_t  lock;
@@ -79,8 +87,10 @@ struct _Catalog {
 };
 
 /**
-* @brief Subscriber's cancellation notification callback.
-*/
+ *******************************************************************************
+ * @brief Subscriber's cancellation notification callback.
+ *******************************************************************************
+ */
 typedef struct _SubscriberCancelNotification
 {
     LSCancelNotificationFunc function;
@@ -88,8 +98,10 @@ typedef struct _SubscriberCancelNotification
 } _SubscriberCancelNotification;
 
 /**
-* @brief User reference to a subscription list.
-*/
+ *******************************************************************************
+ * @brief User reference to a subscription list.
+ *******************************************************************************
+ */
 struct LSSubscriptionIter {
 
     _SubList *tokens;          //< copy of the subscription list
@@ -177,12 +189,15 @@ _SubscriptionRelease(_Catalog *catalog, _Subscription *subs)
 }
 
 /**
-* @brief Create a new subscription.
-*
-* @param  message
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Create a new subscription.
+ *
+ * @param sh
+ * @param message
+ *
+ * @retval _Subscription, created subscription
+ *******************************************************************************
+ */
 static _Subscription *
 _SubscriptionNew(LSHandle *sh, LSMessage *message)
 {
@@ -200,10 +215,12 @@ _SubscriptionNew(LSHandle *sh, LSMessage *message)
 }
 
 /**
-* @brief Create new subscription List
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Create new subscription List
+ *
+ * @retval _SubList, created list
+ *******************************************************************************
+ */
 static _SubList *
 _SubListNew()
 {
@@ -227,11 +244,13 @@ _SubListLen(_SubList *tokens)
 }
 
 /**
-* @brief Add _SubList.
-*
-* @param  tokens
-* @param  data
-*/
+ *******************************************************************************
+ * @brief Add _SubList.
+ *
+ * @param  tokens
+ * @param  data
+ *******************************************************************************
+ */
 static void
 _SubListAdd(_SubList *tokens, char *data)
 {
@@ -260,11 +279,13 @@ _SubListDup(_SubList *src)
 }
 
 /**
-* @brief Remove from _SubList.  This is more expensive.
-*
-* @param  tokens
-* @param  data
-*/
+ *******************************************************************************
+ * @brief Remove from _SubList.  This is more expensive.
+ *
+ * @param  tokens
+ * @param  data
+ *******************************************************************************
+ */
 static void
 _SubListRemove(_SubList *tokens, const char *data)
 {
@@ -335,13 +356,15 @@ _SubListGet(_SubList *tokens, int i)
 }
 
 /**
-* @brief Create a new subscriber cancel notification item.
-*
-* @param  message
-* @param  context
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Create a new subscriber cancel notification item.
+ *
+ * @param  function
+ * @param  context
+ *
+ * @retval _SubscriberCancelNotification, created item
+ *******************************************************************************
+ */
 static _SubscriberCancelNotification *
 _SubscriberCancelNotificationNew(LSCancelNotificationFunc function, void *context)
 {
@@ -358,10 +381,12 @@ _SubscriberCancelNotificationFree(_SubscriberCancelNotification *scn)
 }
 
 /**
-* @brief Create a new subscriber cancellation notifications list
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Create a new subscriber cancellation notifications list
+ *
+ * @retval _CancelNotifyCallbackList, created list
+ *******************************************************************************
+ */
 static _CancelNotifyCallbackList *
 _SubscriberCancelNotificationListNew()
 {
@@ -447,6 +472,12 @@ static bool
 _CatalogAdd(_Catalog *catalog, const char *key,
               LSMessage *message, LSError *lserror)
 {
+    if (!LSMessageIsConnected(message))
+    {
+        _LSErrorSet(lserror, MSGID_LS_SUBSCRIPTION_ERR, -1, "The client has been disconnected");
+        return false;
+    }
+
     bool retVal = false;
     const char *token = LSMessageGetUniqueToken(message);
     if (!token)
@@ -470,7 +501,7 @@ _CatalogAdd(_Catalog *catalog, const char *key,
     if (!client_name)
     {
         _LSErrorSet(lserror, MSGID_LS_UNAME_ERR, -1, "Could not get service unique name");
-        return false;
+        goto cleanup;
     }
 
     _SubList *client_list =
@@ -871,7 +902,10 @@ error:
     return false;
 }
 
-/* @} END OF LunaServiceInternals */
+/**
+ * @} END OF LunaServiceInternals
+ * @endcond
+ */
 
 /**
  * @addtogroup LunaServiceSubscription
@@ -880,18 +914,21 @@ error:
  */
 
 /**
-* @brief Register a callback to be called when subscription cancelled.
-*
-*  Callback may be called when client cancels subscription via LSCallCancel()
-*  or if the client drops off the bus.
-*
-* @param  sh
-* @param  cancelFunction
-* @param  ctx
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Register a callback to be called when subscription is cancelled.
+ *
+ *  Callback may be called when client cancels subscription via LSCallCancel()
+ *  or if the client drops off the bus. The callback won't be called if
+ *  LSSubscriptionAdd() failed for any reason.
+ *
+ * @param  sh              IN  handle to service
+ * @param  cancelFunction  IN  callback function
+ * @param  ctx             IN  user data to be passed to callback
+ * @param  lserror         OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionSetCancelFunction(LSHandle *sh, LSFilterFunc cancelFunction,
                                 void *ctx, LSError *lserror)
@@ -904,21 +941,23 @@ LSSubscriptionSetCancelFunction(LSHandle *sh, LSFilterFunc cancelFunction,
 }
 
 /**
-* @brief Register a callback to be called when remote service cancelled call.
-*
-*  Callback called when client cancels call via LSCallCancel().
-*  Callback called independently if subscriber has been added to subscriptions catalog or not.
-*  Used when we want to get cancel notification without adding subscriber into catalog.
-*  Subscription message unique token passed to function callback together with user-defined context.
-*  User can register multiple callback's, which called in order of registration/removing.
-*
-* @param  sh
-* @param  cancelNotifyFunction
-* @param  ctx
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Register a callback to be called when remote service cancelled call.
+ *
+ * Callback is called when client cancels a call via LSCallCancel().
+ * Callback is called whether a call was added to subscriptions catalog or not.
+ * This is useful for a case when a notification needs to be recieved without adding
+ * subscriber into catalog. Unique token of a message and user context are passed to a function
+ * callback as arguments. User can register multiple callback's, which are called in order of registration.
+ *
+ * @param  sh                   IN  handle to service
+ * @param  cancelNotifyFunction IN  callback function
+ * @param  ctx                  IN  user data to be passed to callback
+ * @param  lserror              OUT set on error
+ *
+ * @return  true on success, otherwise false
+ *******************************************************************************
+ */
 bool LSCallCancelNotificationAdd(LSHandle *sh,
                                 LSCancelNotificationFunc cancelNotifyFunction,
                                 void *ctx, LSError *lserror)
@@ -929,18 +968,20 @@ bool LSCallCancelNotificationAdd(LSHandle *sh,
 }
 
 /**
-* @brief Remove cancellation function callback.
-*
-*  Function callback removed from list not changing relative order of other elements.
-*  Both function callback and context should match to remove.
-*
-* @param  sh
-* @param  cancelNotifyFunction
-* @param  ctx
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Remove previously registered callback on call cancellation
+ *
+ *  Function callback is removed from the list without changing relative order of other
+ *  elements. Both function callback and context should be the same as for registration
+ *
+ * @param  sh                   IN  handle to service
+ * @param  cancelNotifyFunction IN  callback function
+ * @param  ctx                  IN  user data to be passed to callback
+ * @param  lserror              OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool LSCallCancelNotificationRemove(LSHandle *sh,
                                 LSCancelNotificationFunc cancelNotifyFunction,
                                 void *ctx, LSError *lserror)
@@ -951,15 +992,21 @@ bool LSCallCancelNotificationRemove(LSHandle *sh,
 }
 
 /**
-* @brief Add a subscription to a list associated with 'key'.
-*
-* @param  sh
-* @param  key
-* @param  message
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Add a subscription to a list associated with 'key'.
+ *
+ * The call may fail if the client has been disconnected. However, if the call
+ * succeeds, the code can install callback to get notification about client
+ * disconnection or call cancel via LSSubscriptionSetCancelFunction().
+ *
+ * @param  sh      IN  handle to service
+ * @param  key     IN  key
+ * @param  message IN  message object
+ * @param  lserror OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionAdd(LSHandle *sh, const char *key,
                   LSMessage *message, LSError *lserror)
@@ -970,16 +1017,17 @@ LSSubscriptionAdd(LSHandle *sh, const char *key,
 }
 
 /**
-* @brief Acquire an iterator to iterate through the subscription
-*        for 'key'.
-*
-* @param  sh
-* @param  key
-* @param  *ret_iter
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Acquire an iterator to iterate through the subscription for 'key'.
+ *
+ * @param  sh        IN  handle to service
+ * @param  key       IN  key
+ * @param  *ret_iter OUT Acquired iterator
+ * @param  lserror   OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionAcquire(LSHandle *sh, const char *key,
                   LSSubscriptionIter **ret_iter, LSError *lserror)
@@ -1007,10 +1055,12 @@ LSSubscriptionAcquire(LSHandle *sh, const char *key,
 }
 
 /**
-* @brief Frees up resources for LSSubscriptionIter.
-*
-* @param  iter
-*/
+ *******************************************************************************
+ * @brief Frees up resources for LSSubscriptionIter.
+ *
+ * @param iter IN Subscription iterator to free
+ *******************************************************************************
+ */
 void
 LSSubscriptionRelease(LSSubscriptionIter *iter)
 {
@@ -1029,12 +1079,14 @@ LSSubscriptionRelease(LSSubscriptionIter *iter)
 }
 
 /**
-* @brief Returns whether there is a next item in subscription.
-*
-* @param  iter
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Returns whether there is a next item in subscription.
+ *
+ * @param  iter IN Subscription iterator to check
+ *
+ * @return true if has next, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionHasNext(LSSubscriptionIter *iter)
 {
@@ -1047,12 +1099,14 @@ LSSubscriptionHasNext(LSSubscriptionIter *iter)
 }
 
 /**
-* @brief Obtain the next subscription message.
-*
-* @param  iter
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Obtain the next subscription message.
+ *
+ * @param  iter IN Subscription iterator to obtain from
+ *
+ * @retval LSMessage subscription message
+ *******************************************************************************
+ */
 LSMessage *
 LSSubscriptionNext(LSSubscriptionIter *iter)
 {
@@ -1080,10 +1134,12 @@ LSSubscriptionNext(LSSubscriptionIter *iter)
 }
 
 /**
-* @brief Remove the last subscription returned by LSSubscriptionNext().
-*
-* @param  iter
-*/
+ *******************************************************************************
+ * @brief Remove the last subscription returned by LSSubscriptionNext().
+ *
+ * @param iter IN Subscription iterator
+ *******************************************************************************
+ */
 void
 LSSubscriptionRemove(LSSubscriptionIter *iter)
 {
@@ -1095,19 +1151,24 @@ LSSubscriptionRemove(LSSubscriptionIter *iter)
 }
 
 /**
-* @brief Sends a message to subscription list with name 'key'.
-*
-* @param  sh
-* @param  key
-* @param  payload
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Sends a message to subscription list with name 'key'.
+ *
+ * @param sh      IN  handle to service
+ * @param key     IN  key
+ * @param payload IN  some string, usually following json object semantics
+ * @param lserror OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionReply(LSHandle *sh, const char *key,
                     const char *payload, LSError *lserror)
 {
+    _LSErrorIfFail (sh != NULL, lserror, MSGID_LS_INVALID_HANDLE);
+    _LSErrorIfFail (payload != NULL, lserror, MSGID_LS_PARAMETER_IS_NULL);
+
     LSHANDLE_VALIDATE(sh);
 
     bool retVal = true;
@@ -1122,8 +1183,7 @@ LSSubscriptionReply(LSHandle *sh, const char *key,
         goto cleanup;
     }
 
-    int i;
-    for (i = 0; i < tokens->len; i++)
+    for (int i = 0; i < tokens->len; i++)
     {
         char *tok = g_ptr_array_index(tokens, i);
 
@@ -1131,10 +1191,7 @@ LSSubscriptionReply(LSHandle *sh, const char *key,
             g_hash_table_lookup(catalog->token_map, tok);
         if (!subs) continue;
 
-        LSMessage *message = subs->message;
-
-        retVal = LSMessageReply(sh, message, payload, lserror);
-        if (!retVal) goto cleanup;
+        (void) LSMessageRespond(subs->message, payload, lserror);
     }
 cleanup:
     _CatalogUnlock(catalog);
@@ -1142,19 +1199,22 @@ cleanup:
 }
 
 /**
-* @brief Post a notification to all subscribers with name 'key'.
-*
-* This is equivalent to:
-* LSSubscriptionReply(public_bus, ...)
-* LSSubscriptionReply(private_bus, ...)
-*
-* @param  psh
-* @param  key
-* @param  payload
-* @param  lserror
-*
-* @retval
-*/
+ ********************************************************************************
+ * @brief Post a notification to all subscribers with name 'key'.
+ *
+ * This is equivalent to:
+ * LSSubscriptionReply(public_bus, ...)
+ * LSSubscriptionReply(private_bus, ...)
+ *
+ * @param  psh     IN handle to public service
+ * @param  key     IN key
+ * @param  payload IN some string, usually following json object semantics
+ * @param  lserror OUT set on error
+ *
+ * @deprecated Avoid using LSPalmService, use LSHandle instead.
+ *
+ * @return true on success, otherwise false
+ ********************************************************************************/
 bool
 LSSubscriptionRespond(LSPalmService *psh, const char *key,
                       const char *payload, LSError *lserror)
@@ -1173,19 +1233,21 @@ LSSubscriptionRespond(LSPalmService *psh, const char *key,
 }
 
 /**
-* @brief If message contains subscribe:true, add the message
-         to subscription list using the default key '/category/method'.
-*
-*        This is equivalent to LSSubscriptionAdd(sh, key, message, lserror)
-*        where the key is LSMessageGetKind(message).
-*
-* @param  sh
-* @param  message
-* @param  subscribed
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief If message contains subscribe:true, add the message to subscription
+ *        list using the default key '/category/method'.
+ *
+ *        This is equivalent to LSSubscriptionAdd(sh, key, message, lserror)
+ *        where the key is LSMessageGetKind(message).
+ *
+ * @param  sh         IN  service handle
+ * @param  message    IN  message object
+ * @param  subscribed OUT
+ * @param  lserror    OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionProcess (LSHandle *sh, LSMessage *message, bool *subscribed,
                         LSError *lserror)
@@ -1244,20 +1306,22 @@ exit:
 }
 
 /**
-* @brief Posts a message to all in subscription '/category/method'.
-*        This is equivalent to:
-*        LSSubscriptionReply(sh, '/category/method', payload, lserror)
-*
-* @deprecated Please use LSSubscriptionReply() instead.
-*
-* @param  sh
-* @param  category
-* @param  method
-* @param  payload
-* @param  lserror
-*
-* @retval
-*/
+ *******************************************************************************
+ * @brief Posts a message to all in subscription '/category/method'.
+ *        This is equivalent to:
+ *        LSSubscriptionReply(sh, '/category/method', payload, lserror)
+ *
+ * @deprecated Please use LSSubscriptionReply() instead.
+ *
+ * @param  sh       IN  handle to service
+ * @param  category IN  category name
+ * @param  method   IN  method name
+ * @param  payload  IN  some string, usually following json object semantics
+ * @param  lserror  OUT set on error
+ *
+ * @return true on success, otherwise false
+ *******************************************************************************
+ */
 bool
 LSSubscriptionPost(LSHandle *sh, const char *category,
                    const char *method,
@@ -1274,4 +1338,56 @@ LSSubscriptionPost(LSHandle *sh, const char *category,
     return retVal;
 }
 
-/* @} END OF LunaServiceSubscription */
+/**
+* @brief Returns number of subscribers with name 'key'.
+*
+* Function can be used to avoid LSSubscriptionIter or payload creation.
+*
+* @note LSSubscriptionReply has no overhead for empty subscribers list.
+*
+* @param  sh
+* @param  key
+*
+* @retval unsigned int, number of subscribers
+*/
+unsigned int LSSubscriptionGetHandleSubscribersCount(LSHandle *sh, const char *key)
+{
+    LSHANDLE_VALIDATE(sh);
+
+    unsigned retVal = 0;
+    _Catalog *catalog = sh->catalog;
+
+    _CatalogLock(catalog);
+
+    _SubList *tokens = _CatalogGetSubList_unlocked(catalog, key);
+    if (tokens)
+    {
+        retVal = tokens->len;
+    }
+
+    _CatalogUnlock(catalog);
+    return retVal;
+}
+
+/**
+ * @brief Returns number of subscribers with name 'key'.
+ *
+ * @param  psh
+ * @param  key
+ *
+ * @deprecated Avoid using LSPalmService, use LSHandle instead.
+ *
+ * @retval unsigned int, number of subscribers
+ */
+unsigned int LSSubscriptionGetServiceSubscribersCount(LSPalmService *psh, const char *key)
+{
+    LSHandle *public_bus = LSPalmServiceGetPublicConnection(psh);
+    LSHandle *private_bus = LSPalmServiceGetPrivateConnection(psh);
+
+    return LSSubscriptionGetHandleSubscribersCount(public_bus, key) +
+           LSSubscriptionGetHandleSubscribersCount(private_bus, key);
+}
+
+/**
+ * @} END OF LunaServiceSubscription
+ */

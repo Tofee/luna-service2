@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <stdlib.h>
@@ -24,6 +22,7 @@
 
 /* Test data ******************************************************************/
 
+#if GLIB_CHECK_VERSION(2, 38, 0)
 static bool test_sigusr1_handled = false;
 
 static void
@@ -33,6 +32,7 @@ test_sigusr1_handler(int signum)
 
     test_sigusr1_handled = true;
 }
+#endif
 
 /* Test cases *****************************************************************/
 static void
@@ -46,40 +46,46 @@ test_strlen_safe()
 static void
 test_DumpHashItem()
 {
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDOUT))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         DumpHashItem("key", GINT_TO_POINTER(1), 0);
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_stdout("key: key, value: 0x1\n");
+#endif
 }
 
 static void
 test_DumpHashItemTable()
 {
-    GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
-
-    g_hash_table_insert(table, "key1", GINT_TO_POINTER(1));
-    g_hash_table_insert(table, "key2", GINT_TO_POINTER(2));
-
-    if (g_test_trap_fork(0, G_TEST_TRAP_SILENCE_STDOUT))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
+        GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
+
+        g_hash_table_insert(table, "key1", GINT_TO_POINTER(1));
+        g_hash_table_insert(table, "key2", GINT_TO_POINTER(2));
+
         DumpHashTable(table);
+        g_hash_table_unref(table);
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 0, 0);
     const char *expected_stdout =
             "key: key1, value: 0x1\n" \
             "key: key2, value: 0x2\n" \
             "\n";
     g_test_trap_assert_stdout(expected_stdout);
-
-    g_hash_table_unref(table);
+#endif
 }
 
 static void
 test_LSTransportSetupSignalHandler()
 {
-    if (g_test_trap_fork(10000000, 0))
+#if GLIB_CHECK_VERSION(2, 38, 0)
+    if (g_test_subprocess())
     {
         g_assert(_LSTransportSetupSignalHandler(SIGUSR1, test_sigusr1_handler));
 
@@ -98,7 +104,9 @@ test_LSTransportSetupSignalHandler()
 
         exit(0);
     }
+    g_test_trap_subprocess(NULL, 10000000, 0);
     g_test_trap_assert_passed();
+#endif
 }
 
 static void
@@ -106,6 +114,7 @@ test_LSTransportFdSetBlockAndNonBlock()
 {
     gchar templ[] = "XXXXXX";
     int fd = g_mkstemp(templ);
+    g_assert_cmpint(fd, !=, -1);
     bool prev_state_blocking = false;
 
     // file should be in block mode by default

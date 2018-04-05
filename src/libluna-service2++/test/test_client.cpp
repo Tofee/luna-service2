@@ -1,6 +1,4 @@
-// @@@LICENSE
-//
-//      Copyright (c) 2014 LG Electronics, Inc.
+// Copyright (c) 2014-2018 LG Electronics, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// LICENSE@@@
+// SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
 #include <luna-service2/lunaservice.hpp>
 #include <list>
 #include <thread>
 #include <chrono>
-#include "util.hpp"
+
+#include "test_util.hpp"
 
 using namespace std;
 
@@ -62,19 +61,19 @@ TEST(TestClient, Mainloop)
 {
     const char *service_name = "com.palm.test_client3";
 
-    GMainLoop *main_loop = g_main_loop_new(nullptr, false);
+    auto main_loop = mk_ptr(g_main_loop_new(nullptr, false), g_main_loop_unref);
 
     LS::Handle srv = LS::registerService(service_name);
-    EXPECT_NO_THROW(srv.attachToLoop(main_loop));
+    EXPECT_NO_THROW(srv.attachToLoop(main_loop.get()));
     EXPECT_NO_THROW(srv.detach());
 
     srv = LS::registerService(service_name);
-    EXPECT_NO_THROW(srv.attachToLoop(g_main_loop_get_context(main_loop)));
+    EXPECT_NO_THROW(srv.attachToLoop(main_loop.get()));
     EXPECT_NO_THROW(srv.setPriority(5));
     EXPECT_NO_THROW(srv.detach());
 
     LS::PalmService plmsrv = LS::registerPalmService(service_name);
-    EXPECT_NO_THROW(plmsrv.attachToLoop(g_main_loop_get_context(main_loop)));
+    EXPECT_NO_THROW(plmsrv.attachToLoop(main_loop.get()));
     EXPECT_NO_THROW(plmsrv.setPriority(5));
     EXPECT_NO_THROW(plmsrv.getPrivateHandle().detach());
     EXPECT_NO_THROW(plmsrv.getPublicHandle().detach());
@@ -85,27 +84,20 @@ TEST(TestClient, BHV_7106_CallTimeoutOverlapExplicitContext)
     // boost probability of race and overlap
     for (size_t n = 0; n < 10; ++n)
     {
-        GMainContext *main_ctx = g_main_context_new();
-        GMainLoop *main_loop = g_main_loop_new(main_ctx, false);
+        auto main_ctx = mk_ptr(g_main_context_new(), g_main_context_unref);
+        auto main_loop = mk_ptr(g_main_loop_new(main_ctx.get(), false), g_main_loop_unref);
         ASSERT_NE(nullptr, main_loop);
-        OnDescope descope_loop { [&] {
-            g_main_loop_unref(main_loop);
-            g_main_context_unref(main_ctx);
-        }};
 
         LS::Handle srv;
         ASSERT_NO_THROW({ srv = LS::registerService("com.palm.test_client"); });
-        EXPECT_NO_THROW({ srv.attachToLoop(main_loop); });
+        EXPECT_NO_THROW({ srv.attachToLoop(main_loop.get()); });
 
+        QuitTimeout timeout{50, main_loop.get()};
         LS::Call call = srv.callOneReply("luna://com.palm.test_client/foo", "{}");
-
-        GTimeout timeout {50, [&] { g_main_loop_quit(main_loop); return FALSE; }};
-        timeout.attach(main_ctx);
-
         call.setTimeout(50);
 
         // run the race between call-cancel timeout and main-loop timeout
-        g_main_loop_run(main_loop);
+        g_main_loop_run(main_loop.get());
 
         srv = {}; // unregister so call-cancel timeout shouldn't be valid anymor
 
@@ -118,25 +110,19 @@ TEST(TestClient, BHV_7106_CallTimeoutOverlapDefaultContext)
     // boost probability of race and overlap
     for (size_t n = 0; n < 10; ++n)
     {
-        GMainLoop *main_loop = g_main_loop_new(nullptr, false);
+        auto main_loop = mk_ptr(g_main_loop_new(nullptr, false), g_main_loop_unref);
         ASSERT_NE(nullptr, main_loop);
-        OnDescope descope_loop { [&] {
-            g_main_loop_unref(main_loop);
-        }};
 
         LS::Handle srv;
         ASSERT_NO_THROW({ srv = LS::registerService("com.palm.test_client"); });
-        EXPECT_NO_THROW({ srv.attachToLoop(main_loop); });
+        EXPECT_NO_THROW({ srv.attachToLoop(main_loop.get()); });
 
+        QuitTimeout timeout{50, main_loop.get()};
         LS::Call call = srv.callOneReply("luna://com.palm.test_client/foo", "{}");
-
-        GTimeout timeout {50, [&] { g_main_loop_quit(main_loop); return FALSE; }};
-        timeout.attach(g_main_loop_get_context(main_loop));
-
         call.setTimeout(50);
 
         // run the race between call-cancel timeout and main-loop timeout
-        g_main_loop_run(main_loop);
+        g_main_loop_run(main_loop.get());
 
         srv = {}; // unregister so call-cancel timeout shouldn't be valid anymor
 
@@ -170,18 +156,18 @@ TEST(TestClient, Signals)
     LS::Call signal;
 
     EXPECT_NO_THROW(signal = receiver.callSignal("/test", "activated", onSignalCallback, nullptr));
-    process_context(context.get(), 100);
+    LoopContext{100, context.get()};
     // Hub returns registration response
     EXPECT_EQ(call_count, 1);
 
     EXPECT_NO_THROW(provider.sendSignal("luna://com.palm.test_signal_receiver/test/activated", "{}"));
-    process_context(context.get(), 100);
+    LoopContext{100, context.get()};
     EXPECT_EQ(call_count, 2);
 
     EXPECT_NO_THROW(signal.cancel());
-    process_context(context.get(), 100);
+    LoopContext{100, context.get()};
     EXPECT_NO_THROW(provider.sendSignal("luna://com.palm.test_signal_receiver/test/activated", "{}"));
-    process_context(context.get(), 100);
+    LoopContext{100, context.get()};
     EXPECT_EQ(call_count, 2);
 }
 
@@ -201,17 +187,24 @@ TEST(TestClient, ServerStatus)
     LS::Handle listener = LS::registerService("com.palm.test_status_listener");
     listener.attachToLoop(context.get());
 
-    LS::ServerStatus status;
-    EXPECT_NO_THROW(status = listener.registerServerStatus("com.palm.test_status_server", statusCallback));
-    process_context(context.get(), 100);
-    EXPECT_FALSE(is_active);
+    auto names = { "com.palm.test_status_server", "com.webos.service.test_status_server" };
+    for (const auto& i : names)
+    {
+        LS::ServerStatus status;
+        EXPECT_NO_THROW(status = listener.registerServerStatus(i, statusCallback));
+        LoopContext{100, context.get()};
+        EXPECT_FALSE(is_active);
 
-    LS::Handle server = LS::registerService("com.palm.test_status_server");
-    server.attachToLoop(context.get());
-    process_context(context.get(), 100);
-    EXPECT_TRUE(is_active);
+        for (const auto& j : names)
+        {
+            LS::Handle server = LS::registerService(j);
+            server.attachToLoop(context.get());
+            LoopContext{100, context.get()};
+            EXPECT_TRUE(is_active);
 
-    server.detach();
-    process_context(context.get(), 100);
-    EXPECT_FALSE(is_active);
+            server.detach();
+            LoopContext{100, context.get()};
+            EXPECT_FALSE(is_active);
+        }
+    }
 }

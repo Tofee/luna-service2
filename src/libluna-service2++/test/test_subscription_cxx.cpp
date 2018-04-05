@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 #include "util.hpp"
 
@@ -23,6 +21,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
+#include <pthread.h>
 
 #include <iostream>
 #include <string>
@@ -31,12 +30,15 @@
 #include <atomic>
 
 #include <gtest/gtest.h>
-
 #include <luna-service2/lunaservice.hpp>
-#include <payload.hpp>
+
+#include "json_payload.hpp"
+#include "test_util.hpp"
 
 #define TEST_CLASS_NAME "TestService"
 std::atomic_uint g_counter{0};
+std::atomic_uint g_sub_count{0};
+pthread_barrier_t g_barrier;
 
 class TestService
 {
@@ -56,6 +58,9 @@ public:
         _service.setCategoryData("testCalls", this);
         _service.attachToLoop(_mainloop);
         _sp.setServiceHandle(&_service);
+
+        g_sub_count = 0;
+        EXPECT_EQ(_sp.getSubscribersCount(), g_sub_count);
     }
 
     ~TestService()
@@ -71,6 +76,7 @@ public:
             LS::JSONPayload json;
             json.set("class", TEST_CLASS_NAME);
             json.set("subscribed", _sp.subscribe(message));
+            EXPECT_EQ(_sp.getSubscribersCount(), ++g_sub_count);
             json.set("returnValue", true);
             message.respond(json.getJSONString().c_str());
         }
@@ -155,7 +161,7 @@ void clientThreadFunc()
     LS::Handle client = LS::registerService();
     client.attachToLoop(context.get());
 
-    LS::Call call = client.callMultiReply("palm://com.palm.test_subscription_service/testCalls/subscribeCall",
+    LS::Call call = client.callMultiReply("luna://com.palm.test_subscription_service/testCalls/subscribeCall",
         R"({"subscribe":true})");
     auto reply = call.get();
     EXPECT_TRUE(bool(reply)) << "No response from test service";
@@ -179,7 +185,10 @@ void clientThreadFunc()
     EXPECT_LE(1, postId);
     ++g_counter;
 
+    pthread_barrier_wait(&g_barrier);
+
     call.cancel();
+    --g_sub_count;
 }
 
 TEST(TestSubscriptionPoint, SubscriptionDisconnectTest)
@@ -192,7 +201,7 @@ TEST(TestSubscriptionPoint, SubscriptionDisconnectTest)
         LS::Handle client = LS::registerService();
         client.attachToLoop(context.get());
 
-        LS::Call call = client.callMultiReply("palm://com.palm.test_subscription_service/testCalls/subscribeCall",
+        LS::Call call = client.callMultiReply("luna://com.palm.test_subscription_service/testCalls/subscribeCall",
             R"({"subscribe":true})");
 
         auto reply = call.get();
@@ -222,7 +231,7 @@ TEST(TestSubscriptionPoint, SubscriptionDisconnectTest)
     LS::Handle client = LS::registerService("com.palm.test_subscription_client");
     client.attachToLoop(context.get());
 
-    LS::Call callStop = client.callOneReply("palm://com.palm.test_subscription_service/testCalls/stopCall", "{}");
+    LS::Call callStop = client.callOneReply("luna://com.palm.test_subscription_service/testCalls/stopCall", "{}");
     callStop.get(200);
     serviceThread.join();
 
@@ -237,7 +246,7 @@ TEST(TestSubscriptionPoint, SubscriptionCancelTest)
     LS::Handle client = LS::registerService("com.palm.test_subscription_client");
     client.attachToLoop(context.get());
 
-    LS::Call call = client.callMultiReply("palm://com.palm.test_subscription_service/testCalls/subscribeCall",
+    LS::Call call = client.callMultiReply("luna://com.palm.test_subscription_service/testCalls/subscribeCall",
         R"({"subscribe":true})");
 
     auto reply = call.get();
@@ -263,13 +272,15 @@ TEST(TestSubscriptionPoint, SubscriptionCancelTest)
 
     call.cancel();
 
-    call = client.callOneReply("palm://com.palm.test_subscription_service/testCalls/stopCall", "{}");
+    call = client.callOneReply("luna://com.palm.test_subscription_service/testCalls/stopCall", "{}");
     call.get(200);
     serviceThread.join();
 }
 
 TEST(TestSubscriptionPoint, SubscriptionTestMultiClientTest)
 {
+    pthread_barrier_init(&g_barrier, 0, 3);
+
     std::thread serviceThread{serviceThreadFunc};
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -288,10 +299,107 @@ TEST(TestSubscriptionPoint, SubscriptionTestMultiClientTest)
     LS::Handle client = LS::registerService("com.palm.test_subscription_client");
     client.attachToLoop(mainloop);
 
-    client.callOneReply("palm://com.palm.test_subscription_service/testCalls/stopCall", "{}");
+    client.callOneReply("luna://com.palm.test_subscription_service/testCalls/stopCall", "{}");
     serviceThread.join();
     g_main_loop_unref(mainloop);
+
+    pthread_barrier_destroy(&g_barrier);
 }
+
+TEST(TestSubscriptionPoint, PostBeforeSubscribe)
+{
+    MainLoopT main_loop;
+
+    // Initialize the service with subscription point
+    static LSMethod methods[] = {
+        { "method",
+          [](LSHandle *sh, LSMessage *msg, void *ctx) -> bool
+          {
+              LS::SubscriptionPoint *s = static_cast<LS::SubscriptionPoint *>(ctx);
+              LS::Message req(msg);
+              req.respond(R"({"returnValue": true})");
+              // We're going to post subscription response to previous clients and then
+              // to add this one.
+              // Expected that the new client doesn't get the response before it's been
+              // subscribed.
+              s->post(R"({"status": true})");
+              s->subscribe(req);
+              return true;
+          },
+          LUNA_METHOD_FLAGS_NONE },
+        {nullptr}
+    };
+    auto service = LS::registerService("com.webos.service");
+    LS::SubscriptionPoint subscr;
+    subscr.setServiceHandle(&service);
+    service.registerCategory("/", methods, nullptr, nullptr);
+    service.setCategoryData("/", &subscr);
+    service.attachToLoop(main_loop.get());
+
+    // Run the client
+    auto client = LS::registerService("com.webos.client");
+    client.attachToLoop(main_loop.get());
+    auto call = client.callMultiReply("luna://com.webos.service/method", R"({"subscribe": true})");
+    // Get normal response
+    auto r = call.get(1000);
+    ASSERT_NE(nullptr, r.get());
+    EXPECT_STREQ(r.getPayload(), R"({"returnValue": true})");
+    // See whether there's a subscription response (there shouldn't be any)
+    r = call.get(1000);
+    ASSERT_EQ(nullptr, r.get());
+
+    main_loop.stop();
+}
+
+TEST(TestSubscriptionPoint, DestroyAfterPost)
+{
+    MainLoopT main_loop;
+
+    // Initialize the service with subscription point
+    static LSMethod methods[] = {
+        { "method",
+          [](LSHandle *sh, LSMessage *msg, void *ctx) -> bool
+          {
+              LS::Message req(msg);
+              req.respond(R"({"returnValue": true})");
+
+              // Create a temporary subscription point
+              LS::SubscriptionPoint subscr;
+              subscr.setServiceHandle(static_cast<LS::Handle *>(ctx));
+
+              subscr.subscribe(req);
+              subscr.post(R"({"status": true})");
+              // Destroy the subscription point. The test will check that the last
+              // response was delivered.
+              return true;
+          },
+          LUNA_METHOD_FLAGS_NONE },
+        {nullptr}
+    };
+    auto service = LS::registerService("com.webos.service");
+    service.registerCategory("/", methods, nullptr, nullptr);
+    service.setCategoryData("/", &service);
+    service.attachToLoop(main_loop.get());
+
+    // Run the client
+    auto client = LS::registerService("com.webos.client");
+    client.attachToLoop(main_loop.get());
+    auto call = client.callMultiReply("luna://com.webos.service/method", R"({"subscribe": true})");
+    // Get normal response
+    auto r = call.get(1000);
+    ASSERT_NE(nullptr, r.get());
+    EXPECT_STREQ(r.getPayload(), R"({"returnValue": true})");
+    // See whether there's a subscription response
+    r = call.get(1000);
+    ASSERT_NE(nullptr, r.get());
+    EXPECT_STREQ(r.getPayload(), R"({"status": true})");
+    // Nothing else is expected
+    r = call.get(1000);
+    ASSERT_EQ(nullptr, r.get());
+
+    main_loop.stop();
+}
+
 
 int main(int argc, char **argv)
 {

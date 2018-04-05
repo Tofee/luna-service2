@@ -1,6 +1,4 @@
-# @@@LICENSE
-#
-#      Copyright (c) 2008-2014 LG Electronics, Inc.
+# Copyright (c) 2008-2018 LG Electronics, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,24 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# LICENSE@@@
+# SPDX-License-Identifier: Apache-2.0
 
-set(MONITOR_SOURCE_FILES
-    monitor.c
-    monitor_queue.c
+project(ls-monitor)
+
+set(PROJECT_SOURCES
+    monitor.cpp
+    monitor_queue.cpp
+    json_output.cpp
     )
 
-if(TARGET_DESKTOP)
+webos_add_compiler_flags(ALL --std=c++11)
+
+if(WEBOS_TARGET_MACHINE_IMPL STREQUAL guest)
 	add_definitions(-DPID_DIR="/tmp")
 else()
 	add_definitions(-DPID_DIR="${WEBOS_INSTALL_RUNTIMEINFODIR}/ls2")
 endif()
 
-add_executable(ls-monitor ${MONITOR_SOURCE_FILES})
-target_link_libraries(ls-monitor ${CMAKE_PROJECT_NAME})
-webos_build_program(NAME ls-monitor ADMIN ${LS2_RESTRICTED})
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+target_link_libraries(${PROJECT_NAME} ${PBNJSON_CXX_LIBRARIES} luna-service2++)
 
-add_executable(ls-monitor-pub ${MONITOR_SOURCE_FILES})
-target_link_libraries(ls-monitor-pub ${CMAKE_PROJECT_NAME})
-webos_build_program(NAME ls-monitor-pub)
-set_target_properties(ls-monitor-pub PROPERTIES COMPILE_DEFINITIONS "PUBLIC_ONLY")
+if (WEBOS_CONFIG_BUILD_TESTS)
+    add_subdirectory(test)
+else()
+    message(STATUS "ls-monitor: skipping automatic tests")
+endif()
+
+webos_build_program(NAME ${PROJECT_NAME} ADMIN ${LS2_RESTRICTED})

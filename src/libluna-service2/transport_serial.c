@@ -1,20 +1,18 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2014 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 
 #include <string.h>
@@ -26,13 +24,9 @@
 #include "transport_serial.h"
 
 /**
- * @defgroup LunaServiceTransportSerial
+ * @cond INTERNAL
+ * @defgroup LunaServiceTransportSerial Transport serial
  * @ingroup LunaServiceTransport
- * @brief Transport serial
- */
-
-/**
- * @addtogroup LunaServiceTransportSerial
  * @{
  */
 
@@ -81,7 +75,8 @@ _LSTransportSerialMapEntryFree(_LSTransportSerialMapEntry *entry)
  *******************************************************************************
  * @brief Allocate a new serial list item.
  *
- * @param  serial   IN  serial (token)
+ * @param serial  IN serial (token)
+ * @param message IN transport message
  *
  * @retval  item on success
  * @retval  NULL on failure
@@ -191,7 +186,7 @@ _LSTransportSerialFree(_LSTransportSerial *serial_info)
  * @attention locks the serial lock
  *
  * @param  serial_info  IN  serial info
- * @param  serial       IN  message serial (token) to save
+ * @param  message      IN  transport message
  * @param  lserror      OUT set on error
  *
  * @retval  true on success
@@ -282,4 +277,7 @@ _LSTransportSerialPopHead(_LSTransportSerial *serial_info)
     return message;
 }
 
-/* @} END OF LunaServiceTransportSerial */
+/**
+ * @} END OF LunaServiceTransportSerial
+ * @endcond
+ */

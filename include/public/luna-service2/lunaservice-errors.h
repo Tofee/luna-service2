@@ -1,26 +1,23 @@
-/* @@@LICENSE
-*
-*      Copyright (c) 2008-2013 LG Electronics, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* LICENSE@@@ */
+// Copyright (c) 2008-2018 LG Electronics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 #ifndef _LUNASERVICE_ERRORS_H_
 #define _LUNASERVICE_ERRORS_H_
 
 /**
- * @defgroup LunaServiceErrorCodes LunaServiceErrorCodes
- * @brief Error codes for LSError
+ * @defgroup LunaServiceErrorCodes Error codes for LSError
  * @ingroup LunaServiceError
  * @{
  */
@@ -36,12 +33,14 @@
 #define LS_ERROR_CODE_PROTOCOL_VERSION  (-8 - _LS_ERROR_CODE_OFFSET)    /**< protocol version mismatch */
 #define LS_ERROR_CODE_EAGAIN            (-9 - _LS_ERROR_CODE_OFFSET)    /**< try again */
 
-/** @} LunaServiceErrorCodes */
+/**
+ * @} LunaServiceErrorCodes
+ */
 
 /** Lunabus service name */
-#define LUNABUS_SERVICE_NAME        "com.palm.bus"
+#define LUNABUS_SERVICE_NAME        "com.webos.service.bus"
 
-#define LUNABUS_SERVICE_NAME_OLD    "com.palm.lunabus"
+#define LUNABUS_SERVICE_NAME_REGEX  "^com\\.(palm\\.(luna)?bus|webos\\.service\\.bus)$"
 
 /** Category for lunabus signal addmatch */
 #define LUNABUS_SIGNAL_CATEGORY "/com/palm/bus/signal"
@@ -74,6 +73,9 @@
 
 /** Out of memory */
 #define LUNABUS_ERROR_OOM "OutOfMemory"
+
+/** Call timeout expired */
+#define LUNABUS_ERROR_CALL_TIMEOUT "CallTimeout"
 
 /**
  * UnknownError is usually as:
